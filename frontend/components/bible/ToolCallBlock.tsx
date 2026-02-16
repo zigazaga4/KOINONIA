@@ -1,9 +1,9 @@
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Linking } from "react-native";
 import { useState } from "react";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
-import type { ToolCall } from "@/hooks/useChatStream";
+import type { ToolCall, WebSource } from "@/hooks/useChatStream";
 
 type Props = {
   toolCall: ToolCall;
@@ -16,6 +16,7 @@ function formatToolName(name: string): string {
   if (name === "edit_presentation") return "Edit Presentation";
   if (name === "list_presentations") return "List Presentations";
   if (name === "open_bible_panel") return "Open Bible Panel";
+  if (name === "web_search") return "Web Search";
   return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -44,6 +45,13 @@ const HIDDEN_CONTENT_TOOLS = new Set([
 ]);
 
 function getStatusText(toolCall: ToolCall): string | null {
+  if (toolCall.name === "web_search") {
+    const query = toolCall.args?.query as string | undefined;
+    if (!toolCall.result) return query ? `"${query}"` : "Searching the web...";
+    const sources = (toolCall.result as any)?.sources as WebSource[] | undefined;
+    const count = sources ? `${sources.length} source${sources.length !== 1 ? "s" : ""}` : "Search complete";
+    return query ? `"${query}" — ${count}` : count;
+  }
   if (!HIDDEN_CONTENT_TOOLS.has(toolCall.name)) return null;
   const hasArgs = toolCall.args && Object.keys(toolCall.args).length > 0;
   const hasResult = !!toolCall.result;
@@ -91,7 +99,9 @@ export function ToolCallBlock({ toolCall }: Props) {
   const isLoading = !hasResult;
   const hideContent = HIDDEN_CONTENT_TOOLS.has(toolCall.name);
 
-  const iconName = toolCall.name === "write_presentation" || toolCall.name === "read_presentation" || toolCall.name === "edit_presentation" || toolCall.name === "list_presentations"
+  const iconName = toolCall.name === "web_search"
+    ? "globe"
+    : toolCall.name === "write_presentation" || toolCall.name === "read_presentation" || toolCall.name === "edit_presentation" || toolCall.name === "list_presentations"
     ? "television"
     : toolCall.name === "open_bible_panel" ? "columns" : "book";
 
@@ -101,8 +111,8 @@ export function ToolCallBlock({ toolCall }: Props) {
     <View style={styles.container}>
       <TouchableOpacity
         style={styles.header}
-        onPress={() => hasResult && !hideContent && setExpanded(!expanded)}
-        activeOpacity={hasResult && !hideContent ? 0.7 : 1}
+        onPress={() => hasResult && (!hideContent || toolCall.name === "web_search") && setExpanded(!expanded)}
+        activeOpacity={hasResult && (!hideContent || toolCall.name === "web_search") ? 0.7 : 1}
       >
         <View style={styles.headerLeft}>
           {isLoading ? (
@@ -121,7 +131,7 @@ export function ToolCallBlock({ toolCall }: Props) {
             <Text style={styles.toolArgs}>{formatArgs(toolCall.args)}</Text>
           )}
         </View>
-        {hasResult && !hideContent && (
+        {hasResult && (!hideContent || toolCall.name === "web_search") && (
           <FontAwesome
             name={expanded ? "chevron-up" : "chevron-down"}
             size={11}
@@ -130,7 +140,25 @@ export function ToolCallBlock({ toolCall }: Props) {
         )}
       </TouchableOpacity>
 
-      {expanded && toolCall.result && !hideContent && (
+      {expanded && toolCall.result && toolCall.name === "web_search" && (
+        <View style={styles.resultContainer}>
+          {((toolCall.result as any)?.sources as WebSource[] || []).map((source, i) => (
+            <TouchableOpacity
+              key={`${source.url}-${i}`}
+              style={styles.sourceItem}
+              onPress={() => Linking.openURL(source.url)}
+              activeOpacity={0.7}
+            >
+              <FontAwesome name="external-link" size={11} color={KoinoniaColors.primary} />
+              <Text style={styles.sourceTitle} numberOfLines={1}>
+                {source.title || source.url}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {expanded && toolCall.result && !hideContent && toolCall.name !== "web_search" && (
         <View style={styles.resultContainer}>
           {toolCall.result.error ? (
             <Text style={styles.errorText}>{toolCall.result.error}</Text>
@@ -140,14 +168,14 @@ export function ToolCallBlock({ toolCall }: Props) {
                 <Text style={styles.reference}>{toolCall.result.reference}</Text>
               )}
               {toolCall.result.verses.map((v) => (
-                <Text key={v.verse} style={styles.verseText}>
+                <Text key={v.verse} selectable style={styles.verseText}>
                   <Text style={styles.verseNum}>{v.verse} </Text>
                   {v.text}
                 </Text>
               ))}
             </>
           ) : (
-            <Text style={styles.rawResult}>
+            <Text selectable style={styles.rawResult}>
               {JSON.stringify(toolCall.result, null, 2)}
             </Text>
           )}
@@ -230,5 +258,17 @@ const styles = StyleSheet.create({
     fontFamily: "monospace",
     fontSize: 12,
     color: KoinoniaColors.warmGray,
+  },
+  sourceItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  sourceTitle: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    color: KoinoniaColors.primary,
+    flex: 1,
   },
 });

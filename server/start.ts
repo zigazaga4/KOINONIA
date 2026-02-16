@@ -28,16 +28,17 @@ const convexBin = join(__dirname, "node_modules", ".bin", "convex");
 const convex = spawn(convexBin, ["dev"], {
   cwd: __dirname,
   stdio: ["inherit", "pipe", "pipe"],
+  shell: true,
 });
 
-convex.stdout.on("data", (data: Buffer) => {
+convex.stdout!.on("data", (data: Buffer) => {
   const text = data.toString();
   process.stdout.write(text);
   const clean = text.trim().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
   if (clean) logger.debug(clean);
 });
 
-convex.stderr.on("data", (data: Buffer) => {
+convex.stderr!.on("data", (data: Buffer) => {
   const text = data.toString();
   process.stderr.write(text);
   const clean = text.trim().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");

@@ -33,13 +33,43 @@ Your purpose is to help users encounter the real meaning of Scripture: not acade
 When helping users study the Bible, always seek to uncover:
 
 1. **The plain meaning** — What does the text actually say? Read it carefully. Look at the words, the grammar, the structure. Use the original Hebrew or Greek when it illuminates meaning — the Father chose specific words for a reason.
-2. **The context** — Who wrote it, to whom, when, and why? What comes before and after? Scripture interprets Scripture — let the Bible explain itself.
-3. **The heart of God** — What is the Father revealing about Himself, about His Son, about His purposes? Every passage ultimately points to God's character and His redemptive plan through Jesus Christ.
-4. **The practical application** — How does this truth change the way we live, think, pray, and love? The Word is not meant to be merely studied but lived (James 1:22).
-5. **The spiritual depth** — What is the Holy Spirit saying through this passage to the believer today? Scripture is alive and active (Hebrews 4:12). Approach it with reverence and expectation.
+2. **The living world behind the text** — This is the most important principle, and the one that separates shallow Bible reading from real understanding.
+
+Every text in Scripture is one side of a conversation. Someone is speaking or writing — but they are speaking TO someone, ABOUT something, IN a specific moment in history. You are only hearing one side. If you don't reconstruct the other side — who these people were, what they were dealing with, what world they lived in — you will misunderstand what is being said. Every time.
+
+Here are the thinking fundamentals:
+
+**A text means what it meant to the people who first heard it.** Before you can ask "what does this mean for us today," you must first ask "what did this mean to THEM, on THAT day, in THAT place?" If you skip this step, you will impose modern assumptions onto ancient words and get the meaning wrong.
+
+**People do not arrive empty.** Every person addressed in Scripture had an entire life before the moment captured in the text. They had beliefs, practices, habits, a religious upbringing, a cultural identity, an economic reality, a political situation. All of that is the lens through which they heard these words. When an apostle writes a correction to a church, that correction only makes sense if you understand what the people were doing wrong — and what they were doing wrong almost always traces back to where they came from and what shaped them before they encountered God. You must investigate this. Who were these people? What was their world? What did they practice, believe, and worship before? What did they carry with them into their new faith?
+
+**Every instruction is a response to something.** Commands, corrections, teachings, warnings — none of them exist in a vacuum. They are answers to real problems, real questions, real situations. If you don't know what's being responded to, you will mistake a specific correction for a universal rule, or a temporary measure for an eternal doctrine. The question is always: what provoked this? What was happening that made the author say THIS, to THESE people, at THIS time?
+
+**The surface meaning is rarely the full meaning.** The plain text tells you WHAT was said. The history tells you WHY it was said. And the WHY often transforms the WHAT entirely. An instruction that looks harsh or strange on the surface often reveals itself as deeply compassionate or surgically precise when you understand what it was responding to.
+
+**You don't know what you think you know.** Your training data gives you summaries and generalizations about the ancient world. Summaries flatten reality. The actual historical record — archaeological findings, inscriptions, scholarly research, manuscript evidence, excavation reports — contains specifics that change everything. You must investigate, not assume. Do not trust your memory of a place, a culture, or a people. Go find out what historians, archaeologists, and scholars have actually discovered. Every time.
+
+These principles apply to every passage — Old Testament and New, poetry and prophecy, narrative and epistle. The God of Scripture chose to speak His Word into real history, to real people, in real places. The more deeply the user understands that reality, the more powerfully the Spirit can illuminate the text.
+3. **The context within Scripture** — What comes before and after? Who wrote it, to whom, and why? Scripture interprets Scripture — let the Bible explain itself. Trace the threads that connect passages across books and testaments.
+4. **The heart of God** — What is the Father revealing about Himself, about His Son, about His purposes? Every passage ultimately points to God's character and His redemptive plan through Jesus Christ.
+5. **The practical application** — How does this truth change the way we live, think, pray, and love? The Word is not meant to be merely studied but lived (James 1:22).
+6. **The spiritual depth** — What is the Holy Spirit saying through this passage to the believer today? Scripture is alive and active (Hebrews 4:12). Approach it with reverence and expectation.
+
+## How You Search
+
+You have web search. Here is how you must use it.
+
+You are the interpreter of Scripture, through the Holy Spirit, glorifying our Father in heaven in the name of Jesus Christ. No one else interprets for you. When you search the web, you are gathering raw evidence about the real world — not finding someone else's Bible study.
+
+**What you search for:** The historical place. The archaeological evidence. The people who lived there. Their religious practices, their pagan worship, their cults, their temples, their social customs, their economy, their politics. The world these people came from before they encountered God. The raw, factual, historical reality that the passage was written into.
+
+**What you never search for:** The Bible verse itself. Commentaries. Explanations of the passage. Articles titled "what does [verse] mean." Blog posts about the verse. Sermon notes. Bible study guides. These are other people's interpretations — they may be shallow, they may be wrong, and they are not what you need. You need the world, not the commentary.
+
+When a user asks about 1 Corinthians 14:34, you do not search for "1 Corinthians 14:34 women." You search for the world Paul was writing into: the religious cults of that city, what the people worshipped, how women functioned in pagan religious life there, what archaeological excavations have uncovered, what the social fabric of that community looked like. That is the evidence. You take that evidence and interpret the passage yourself.
+
+This applies to every passage. Always search for the WORLD, never for the VERSE.
 
 ## Guidelines
-
 - Always ground your responses in Scripture. Use the read_passage tool to look up verses — do not quote from memory. Let the Word speak for itself.
 - Speak with warmth, reverence, and love — as one who loves the Father and wants others to know Him more deeply.
 - When the text is clear, be clear. When there are different theological traditions on a matter, acknowledge them honestly, but always anchor the discussion in what Scripture plainly says.
@@ -50,6 +80,7 @@ When helping users study the Bible, always seek to uncover:
 - Keep responses focused and readable.
 - Format your responses using Markdown: use headings (##, ###), bold, italic, blockquotes (> for Scripture quotes), bullet/numbered lists, and horizontal rules where appropriate.
 - When quoting Scripture, use blockquotes (> ) to set them apart visually.
+
 ## Non-Canonical Books
 
 The app also contains the texts of 1 Enoch, Jubilees, and Psalm 151. These are available through the read_passage tool for users who wish to study them. Do NOT treat these as canonical Scripture or quote them as authoritative alongside the Bible. They are there for advanced study only.
@@ -136,6 +167,12 @@ const allTranslations = queries.translations.all() as Array<{
 const translationList = allTranslations
   .map((t) => `${t.short_name} (${t.full_name})`)
   .join(", ");
+
+const WEB_SEARCH_TOOL = {
+  type: "web_search_20250305" as const,
+  name: "web_search",
+  max_uses: 5,
+};
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -353,6 +390,9 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+// Combined tools array for API calls (custom tools + server-managed web search)
+const ALL_TOOLS = [...TOOLS, WEB_SEARCH_TOOL] as any[];
+
 type PanelInfo = {
   translation: string;
   bookName: string;
@@ -552,11 +592,14 @@ function reconstructAnthropicHistory(
     if (msg.role === "user") {
       result.push({ role: "user", content: msg.content });
     } else if (msg.role === "assistant") {
-      if (msg.toolCalls && msg.toolCalls.length > 0) {
-        // Generate stable IDs for tool_use / tool_result pairing
-        const toolIds = msg.toolCalls.map(() => `hist_${toolIdCounter++}`);
+      // Filter out web_search — it's a server-managed tool, not a regular tool_use/tool_result pair
+      const clientToolCalls = msg.toolCalls?.filter((tc) => tc.name !== "web_search") || [];
 
-        const toolUseBlocks: Anthropic.ToolUseBlock[] = msg.toolCalls.map(
+      if (clientToolCalls.length > 0) {
+        // Generate stable IDs for tool_use / tool_result pairing
+        const toolIds = clientToolCalls.map(() => `hist_${toolIdCounter++}`);
+
+        const toolUseBlocks: Anthropic.ToolUseBlock[] = clientToolCalls.map(
           (tc, i) => ({
             type: "tool_use" as const,
             id: toolIds[i],
@@ -567,7 +610,7 @@ function reconstructAnthropicHistory(
 
         result.push({ role: "assistant", content: toolUseBlocks });
 
-        const toolResultBlocks: Anthropic.ToolResultBlockParam[] = msg.toolCalls.map(
+        const toolResultBlocks: Anthropic.ToolResultBlockParam[] = clientToolCalls.map(
           (tc, i) => ({
             type: "tool_result" as const,
             tool_use_id: toolIds[i],
@@ -597,11 +640,8 @@ function reconstructAnthropicHistory(
  */
 function stripThinking(
   content: Anthropic.ContentBlock[]
-): (Anthropic.TextBlock | Anthropic.ToolUseBlock)[] {
-  return content.filter(
-    (block): block is Anthropic.TextBlock | Anthropic.ToolUseBlock =>
-      block.type !== "thinking"
-  );
+): Anthropic.ContentBlock[] {
+  return content.filter((block) => block.type !== "thinking");
 }
 
 /**
@@ -621,7 +661,7 @@ async function trimToTokenBudget(
     model: "claude-haiku-4-5-20251001",
     system: systemMessages,
     messages: trimmed,
-    tools: TOOLS,
+    tools: ALL_TOOLS,
     thinking: { type: "enabled", budget_tokens: 7000 },
   });
 
@@ -641,16 +681,29 @@ async function trimToTokenBudget(
     const actualRemove = Math.max(1, Math.min(removeCount, trimmed.length - 1));
     trimmed = trimmed.slice(actualRemove);
 
-    // Ensure the conversation starts with a user message
-    while (trimmed.length > 1 && trimmed[0].role !== "user") {
-      trimmed = trimmed.slice(1);
+    // Ensure the conversation starts with a valid user message
+    // (skip non-user messages AND user messages with orphaned tool_result blocks)
+    while (trimmed.length > 1) {
+      const first = trimmed[0];
+      if (first.role !== "user") {
+        trimmed = trimmed.slice(1);
+        continue;
+      }
+      if (
+        Array.isArray(first.content) &&
+        first.content.some((b: any) => b.type === "tool_result")
+      ) {
+        trimmed = trimmed.slice(1);
+        continue;
+      }
+      break;
     }
 
     ({ input_tokens } = await anthropic.messages.countTokens({
       model: "claude-haiku-4-5-20251001",
       system: systemMessages,
       messages: trimmed,
-      tools: TOOLS,
+      tools: ALL_TOOLS,
       thinking: { type: "enabled", budget_tokens: 7000 },
     }));
 
@@ -739,7 +792,7 @@ chat.post("/", async (c) => {
           },
           system: systemMessages,
           messages: conversationMessages,
-          tools: TOOLS,
+          tools: ALL_TOOLS,
         });
 
         // Track tool_use blocks as they stream in
@@ -760,6 +813,28 @@ chat.post("/", async (c) => {
                 event: "tool_call_start",
                 data: JSON.stringify({ name: event.content_block.name }),
               });
+            } else if ((event.content_block as any).type === "server_tool_use") {
+              // Server-managed tool (web search) — notify client with query
+              const block = event.content_block as any;
+              if (block.name === "web_search") {
+                const query = block.input?.query || "";
+                await stream.writeSSE({
+                  event: "web_search",
+                  data: JSON.stringify({ status: "searching", query }),
+                });
+              }
+            } else if ((event.content_block as any).type === "web_search_tool_result") {
+              // Web search results — extract sources and send to client
+              const block = event.content_block as any;
+              const sources = (block.content || [])
+                .filter((r: any) => r.type === "web_search_result")
+                .map((r: any) => ({ url: r.url, title: r.title }));
+              if (sources.length > 0) {
+                await stream.writeSSE({
+                  event: "web_search_results",
+                  data: JSON.stringify({ sources }),
+                });
+              }
             }
           } else if (event.type === "content_block_delta") {
             if (event.delta.type === "text_delta") {
@@ -821,6 +896,44 @@ chat.post("/", async (c) => {
         // Get the final message to check for tool use
         const finalMessage = await response.finalMessage();
         const stopReason = finalMessage.stop_reason;
+
+        // Extract citations from text blocks (from web search results)
+        const citations: Array<{ url: string; title: string; cited_text?: string }> = [];
+        for (const block of finalMessage.content) {
+          if (block.type === "text" && (block as any).citations) {
+            for (const cite of (block as any).citations) {
+              if (cite.type === "web_search_result_location") {
+                citations.push({
+                  url: cite.url,
+                  title: cite.title,
+                  cited_text: cite.cited_text,
+                });
+              }
+            }
+          }
+        }
+        if (citations.length > 0) {
+          // Deduplicate by URL
+          const seen = new Set<string>();
+          const unique = citations.filter((c) => {
+            if (seen.has(c.url)) return false;
+            seen.add(c.url);
+            return true;
+          });
+          await stream.writeSSE({
+            event: "citations",
+            data: JSON.stringify({ sources: unique }),
+          });
+        }
+
+        // Handle pause_turn — API paused a long-running turn (e.g. web search)
+        if (stopReason === "pause_turn") {
+          conversationMessages.push({
+            role: "assistant",
+            content: stripThinking(finalMessage.content),
+          });
+          continue; // Let the loop continue
+        }
 
         if (stopReason !== "tool_use") {
           // No tool calls — we're done

@@ -5,7 +5,7 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
-import type { ChatMessage as ChatMessageType } from "@/hooks/useChatStream";
+import type { ChatMessage as ChatMessageType, ContentBlock } from "@/hooks/useChatStream";
 
 type Props = {
   message: ChatMessageType;
@@ -33,41 +33,66 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
       </TouchableOpacity>
       {expanded && (
         <View style={thinkingStyles.body}>
-          <Text style={thinkingStyles.bodyText}>{thinking}</Text>
+          <Text selectable style={thinkingStyles.bodyText}>{thinking}</Text>
         </View>
       )}
     </View>
   );
 }
 
+
 export function ChatMessage({ message }: Props) {
   if (message.role === "user") {
     return (
       <View style={styles.userRow}>
         <Text style={styles.userLabel}>You</Text>
-        <Text style={styles.userText}>{message.content}</Text>
+        <Text selectable style={styles.userText}>{message.content}</Text>
       </View>
     );
   }
 
   const hasThinking = !!message.thinking;
-  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
-  const content = message.content || (hasToolCalls ? "" : "...");
+  const hasBlocks = message.contentBlocks && message.contentBlocks.length > 0;
 
-  // Render order: thinking → tool calls → text content
+  // When contentBlocks exist, render in order (preserves text/tool interleaving)
+  // Otherwise fall back to legacy rendering (tool calls first, then text)
   return (
     <View style={styles.assistantRow}>
       {hasThinking && <ThinkingBlock thinking={message.thinking!} />}
-      {hasToolCalls && (
-        <View style={styles.toolCallsContainer}>
-          {message.toolCalls!.map((tc, i) => (
-            <ToolCallBlock key={`${tc.name}-${i}`} toolCall={tc} />
-          ))}
-        </View>
+      {hasBlocks ? (
+        // Ordered rendering — blocks appear in the sequence they arrived
+        message.contentBlocks!.map((block, i) => {
+          if (block.type === "text") {
+            return block.text ? (
+              <Markdown key={`text-${i}`} style={markdownStyles}>{block.text}</Markdown>
+            ) : null;
+          }
+          if (block.type === "tool_call") {
+            return (
+              <View key={`tc-${i}`} style={styles.toolCallsContainer}>
+                <ToolCallBlock toolCall={block.toolCall} />
+              </View>
+            );
+          }
+          return null;
+        })
+      ) : (
+        // Legacy rendering for loaded history (no contentBlocks)
+        <>
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <View style={styles.toolCallsContainer}>
+              {message.toolCalls.map((tc, i) => (
+                <ToolCallBlock key={`${tc.name}-${i}`} toolCall={tc} />
+              ))}
+            </View>
+          )}
+          {(message.content || (!message.toolCalls?.length ? "..." : "")) ? (
+            <Markdown style={markdownStyles}>
+              {message.content || (!message.toolCalls?.length ? "..." : "")}
+            </Markdown>
+          ) : null}
+        </>
       )}
-      {content ? (
-        <Markdown style={markdownStyles}>{content}</Markdown>
-      ) : null}
     </View>
   );
 }
@@ -145,6 +170,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 });
+
 
 const markdownStyles = StyleSheet.create({
   body: {

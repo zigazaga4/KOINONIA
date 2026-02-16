@@ -17,12 +17,25 @@ export type ToolCall = {
   };
 };
 
+export type WebSource = {
+  url: string;
+  title: string;
+  cited_text?: string;
+};
+
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; toolCall: ToolCall };
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   thinking?: string;
   toolCalls?: ToolCall[];
+  sources?: WebSource[];
+  isSearching?: boolean;
+  contentBlocks?: ContentBlock[];
 };
 
 export type PanelInfo = {
@@ -198,10 +211,12 @@ export function useChatStream({
         let currentEvent = "";
         let dataLines: string[] = [];
 
-        // Track accumulated content, thinking, and tool calls for saving
+        // Track accumulated content, thinking, tool calls, and web sources for saving
         let accumulatedContent = "";
         let accumulatedThinking = "";
         let accumulatedToolCalls: ToolCall[] = [];
+        let accumulatedSources: WebSource[] = [];
+        let accumulatedBlocks: ContentBlock[] = [];
 
         function processEvent() {
           if (!currentEvent || dataLines.length === 0) return;
@@ -221,23 +236,39 @@ export function useChatStream({
 
             case "text":
               accumulatedContent += data;
-              setMessages((prev) =>
-                updateLastAssistant(prev, (msg) => ({
-                  ...msg,
-                  content: msg.content + data,
-                }))
-              );
+              // Append to last text block or create a new one
+              if (accumulatedBlocks.length > 0 && accumulatedBlocks[accumulatedBlocks.length - 1].type === "text") {
+                (accumulatedBlocks[accumulatedBlocks.length - 1] as { type: "text"; text: string }).text += data;
+              } else {
+                accumulatedBlocks.push({ type: "text", text: data });
+              }
+              {
+                const blocksCopy = accumulatedBlocks.map((b) => ({ ...b }));
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => ({
+                    ...msg,
+                    content: msg.content + data,
+                    contentBlocks: blocksCopy,
+                  }))
+                );
+              }
               break;
 
             case "tool_call_start":
               // Tool name is known immediately — show loading state
               try {
                 const start = JSON.parse(data) as { name: string };
-                accumulatedToolCalls.push({ name: start.name, args: {} });
+                const newToolCall: ToolCall = { name: start.name, args: {} };
+                accumulatedToolCalls.push(newToolCall);
+                accumulatedBlocks.push({ type: "tool_call", toolCall: newToolCall });
+                const blocksCopy = accumulatedBlocks.map((b) =>
+                  b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                );
                 setMessages((prev) =>
                   updateLastAssistant(prev, (msg) => ({
                     ...msg,
                     toolCalls: [...(msg.toolCalls || []), { name: start.name, args: {} }],
+                    contentBlocks: blocksCopy,
                   }))
                 );
               } catch {}
@@ -247,24 +278,33 @@ export function useChatStream({
               // Full tool call with args — update the existing placeholder
               try {
                 const call = JSON.parse(data) as { name: string; args: Record<string, unknown> };
-                // Update accumulated entry
+                // Update accumulated entry and matching block
                 for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
                   if (accumulatedToolCalls[i].name === call.name && Object.keys(accumulatedToolCalls[i].args).length === 0) {
                     accumulatedToolCalls[i].args = call.args;
                     break;
                   }
                 }
+                for (let i = accumulatedBlocks.length - 1; i >= 0; i--) {
+                  const b = accumulatedBlocks[i];
+                  if (b.type === "tool_call" && b.toolCall.name === call.name && Object.keys(b.toolCall.args).length === 0) {
+                    b.toolCall.args = call.args;
+                    break;
+                  }
+                }
+                const blocksCopy = accumulatedBlocks.map((b) =>
+                  b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                );
                 setMessages((prev) =>
                   updateLastAssistant(prev, (msg) => {
                     const calls = [...(msg.toolCalls || [])];
-                    // Find the placeholder entry and fill in args
                     for (let i = calls.length - 1; i >= 0; i--) {
                       if (calls[i].name === call.name && Object.keys(calls[i].args).length === 0) {
                         calls[i] = { ...calls[i], args: call.args };
                         break;
                       }
                     }
-                    return { ...msg, toolCalls: calls };
+                    return { ...msg, toolCalls: calls, contentBlocks: blocksCopy };
                   })
                 );
               } catch {}
@@ -277,13 +317,23 @@ export function useChatStream({
                   args: Record<string, unknown>;
                   result: ToolCall["result"];
                 };
-                // Update accumulated tool calls
+                // Update accumulated tool calls and matching block
                 for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
                   if (accumulatedToolCalls[i].name === result.name && !accumulatedToolCalls[i].result) {
                     accumulatedToolCalls[i].result = result.result;
                     break;
                   }
                 }
+                for (let i = accumulatedBlocks.length - 1; i >= 0; i--) {
+                  const b = accumulatedBlocks[i];
+                  if (b.type === "tool_call" && b.toolCall.name === result.name && !b.toolCall.result) {
+                    b.toolCall.result = result.result;
+                    break;
+                  }
+                }
+                const blocksCopy = accumulatedBlocks.map((b) =>
+                  b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                );
                 setMessages((prev) =>
                   updateLastAssistant(prev, (msg) => {
                     const calls = [...(msg.toolCalls || [])];
@@ -293,7 +343,7 @@ export function useChatStream({
                         break;
                       }
                     }
-                    return { ...msg, toolCalls: calls };
+                    return { ...msg, toolCalls: calls, contentBlocks: blocksCopy };
                   })
                 );
               } catch {}
@@ -327,6 +377,115 @@ export function useChatStream({
               try {
                 const sw = JSON.parse(data) as { presentationId: string };
                 onSwitchPresentation?.(sw.presentationId);
+              } catch {}
+              break;
+
+            case "web_search": {
+              // Claude is searching the web — create a tool call block with query
+              try {
+                const wsData = JSON.parse(data) as { status: string; query?: string };
+                const wsArgs = wsData.query ? { query: wsData.query } : {};
+                const wsToolCall: ToolCall = { name: "web_search", args: wsArgs };
+                accumulatedToolCalls.push(wsToolCall);
+                accumulatedBlocks.push({ type: "tool_call", toolCall: wsToolCall });
+                const wsBlocksCopy = accumulatedBlocks.map((b) =>
+                  b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                );
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => ({
+                    ...msg,
+                    toolCalls: [...(msg.toolCalls || []), { ...wsToolCall }],
+                    contentBlocks: wsBlocksCopy,
+                  }))
+                );
+              } catch {}
+              break;
+            }
+
+            case "web_search_results":
+              // Web search completed — update the web_search tool call with sources
+              try {
+                const wsResult = JSON.parse(data) as { sources: WebSource[] };
+                accumulatedSources.push(...wsResult.sources);
+                // Update accumulated tool call and block
+                for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
+                  if (accumulatedToolCalls[i].name === "web_search" && !accumulatedToolCalls[i].result) {
+                    accumulatedToolCalls[i].result = { sources: wsResult.sources } as any;
+                    break;
+                  }
+                }
+                for (let i = accumulatedBlocks.length - 1; i >= 0; i--) {
+                  const b = accumulatedBlocks[i];
+                  if (b.type === "tool_call" && b.toolCall.name === "web_search" && !b.toolCall.result) {
+                    b.toolCall.result = { sources: wsResult.sources } as any;
+                    break;
+                  }
+                }
+                const wsrBlocksCopy = accumulatedBlocks.map((b) =>
+                  b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                );
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => {
+                    const calls = [...(msg.toolCalls || [])];
+                    for (let i = calls.length - 1; i >= 0; i--) {
+                      if (calls[i].name === "web_search" && !calls[i].result) {
+                        calls[i] = { ...calls[i], result: { sources: wsResult.sources } as any };
+                        break;
+                      }
+                    }
+                    return { ...msg, toolCalls: calls, contentBlocks: wsrBlocksCopy };
+                  })
+                );
+              } catch {}
+              break;
+
+            case "citations":
+              // Citation sources — add to the web_search tool call result
+              try {
+                const citationData = JSON.parse(data) as { sources: WebSource[] };
+                const existingUrls = new Set(accumulatedSources.map((s) => s.url));
+                const newSources = citationData.sources.filter((s) => !existingUrls.has(s.url));
+                accumulatedSources.push(...newSources);
+                if (newSources.length > 0) {
+                  // Add citations to the most recent web_search tool call
+                  for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
+                    if (accumulatedToolCalls[i].name === "web_search" && accumulatedToolCalls[i].result) {
+                      const existing = ((accumulatedToolCalls[i].result as any).sources || []) as WebSource[];
+                      const existSet = new Set(existing.map((s: WebSource) => s.url));
+                      const toAdd = newSources.filter((s) => !existSet.has(s.url));
+                      (accumulatedToolCalls[i].result as any).sources = [...existing, ...toAdd];
+                      break;
+                    }
+                  }
+                  for (let i = accumulatedBlocks.length - 1; i >= 0; i--) {
+                    const b = accumulatedBlocks[i];
+                    if (b.type === "tool_call" && b.toolCall.name === "web_search" && b.toolCall.result) {
+                      const existing = ((b.toolCall.result as any).sources || []) as WebSource[];
+                      const existSet = new Set(existing.map((s: WebSource) => s.url));
+                      const toAdd = newSources.filter((s) => !existSet.has(s.url));
+                      (b.toolCall.result as any).sources = [...existing, ...toAdd];
+                      break;
+                    }
+                  }
+                  const citBlocksCopy = accumulatedBlocks.map((b) =>
+                    b.type === "tool_call" ? { ...b, toolCall: { ...b.toolCall } } : { ...b }
+                  );
+                  setMessages((prev) =>
+                    updateLastAssistant(prev, (msg) => {
+                      const calls = [...(msg.toolCalls || [])];
+                      for (let i = calls.length - 1; i >= 0; i--) {
+                        if (calls[i].name === "web_search" && calls[i].result) {
+                          const existing = ((calls[i].result as any).sources || []) as WebSource[];
+                          const existSet = new Set(existing.map((s: WebSource) => s.url));
+                          const toAdd = newSources.filter((s) => !existSet.has(s.url));
+                          calls[i] = { ...calls[i], result: { ...calls[i].result, sources: [...existing, ...toAdd] } as any };
+                          break;
+                        }
+                      }
+                      return { ...msg, toolCalls: calls, contentBlocks: citBlocksCopy };
+                    })
+                  );
+                }
               } catch {}
               break;
 

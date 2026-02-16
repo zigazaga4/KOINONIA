@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:labs.convex.dev)",
+      "Bash(npx convex env list:*)",
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

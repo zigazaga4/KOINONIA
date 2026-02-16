@@ -101,6 +101,7 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
   }, [resetMessages]);
 
   const scrollRef = useRef<ScrollView>(null);
+  const isNearBottomRef = useRef(true);
   const slideAnim = useRef(
     new Animated.Value(Dimensions.get("window").width)
   ).current;
@@ -159,7 +160,17 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
           ref={scrollRef}
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          onContentSizeChange={() => {
+            if (isNearBottomRef.current) {
+              scrollRef.current?.scrollToEnd({ animated: false });
+            }
+          }}
+          onScroll={(e) => {
+            const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+            const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+            isNearBottomRef.current = distanceFromBottom < 80;
+          }}
+          scrollEventThrottle={100}
         >
           {messages.map((msg) => (
             <ChatMessage key={msg.id} message={msg} />
@@ -265,6 +276,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 8,
+    // @ts-ignore — React Native Web supports userSelect
+    userSelect: "text",
+    cursor: "auto",
   },
   loadingRow: {
     flexDirection: "row",
