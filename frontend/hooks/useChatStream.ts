@@ -1,0 +1,409 @@
+import { useState, useCallback, useRef } from "react";
+import { useMutation } from "convex/react";
+import { api } from "../../server/convex/_generated/api";
+import type { Id } from "../../server/convex/_generated/dataModel";
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3141";
+
+export type ToolCall = {
+  name: string;
+  args: Record<string, unknown>;
+  result?: {
+    reference?: string;
+    verses?: Array<{ verse: number; text: string }>;
+    error?: string;
+    message?: string;
+    [key: string]: unknown;
+  };
+};
+
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  toolCalls?: ToolCall[];
+};
+
+export type PanelInfo = {
+  translation: string;
+  bookName: string;
+  chapter: number;
+};
+
+function updateLastAssistant(
+  prev: ChatMessage[],
+  updater: (msg: ChatMessage) => ChatMessage
+): ChatMessage[] {
+  const updated = [...prev];
+  const last = updated[updated.length - 1];
+  if (last?.role === "assistant") {
+    updated[updated.length - 1] = updater(last);
+  }
+  return updated;
+}
+
+export type OpenPanelInfo = {
+  translation: string;
+  bookId: number;
+  bookName: string;
+  chapter: number;
+};
+
+type SlideData = { title: string; html: string };
+
+export type PresentationSummary = {
+  id: string;
+  title: string;
+  mode: string;
+};
+
+export type PresentationUpdateData = {
+  mode: string;
+  title: string;
+  html?: string;
+  themeCss?: string;
+  slides?: SlideData[];
+  presentationId?: string;
+};
+
+type UseChatStreamOptions = {
+  panels: PanelInfo[];
+  token: string | null;
+  deviceId: string | null;
+  conversationId: Id<"conversations"> | null;
+  presentation?: { id?: string; mode: string; html?: string; themeCss?: string; slides?: SlideData[] };
+  presentationSummaries?: PresentationSummary[];
+  onConversationCreated?: (id: Id<"conversations">) => void;
+  initialMessages?: ChatMessage[];
+  onOpenPanel?: (info: OpenPanelInfo) => void;
+  onPresentationUpdate?: (data: PresentationUpdateData) => void;
+  onPresentationStreaming?: (partialHtml: string) => void;
+  onSwitchPresentation?: (presentationId: string) => void;
+};
+
+export function useChatStream({
+  panels,
+  token,
+  deviceId,
+  conversationId,
+  onConversationCreated,
+  initialMessages,
+  onOpenPanel,
+  onPresentationUpdate,
+  onPresentationStreaming,
+  onSwitchPresentation,
+  presentation: presentationData,
+  presentationSummaries,
+}: UseChatStreamOptions) {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages || []);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const convoIdRef = useRef<Id<"conversations"> | null>(conversationId);
+  convoIdRef.current = conversationId;
+
+  const createConversation = useMutation(api.conversations.create);
+  const saveMessageMut = useMutation(api.conversations.saveMessage);
+  const updateTitle = useMutation(api.conversations.updateTitle);
+
+  // Reset messages when initialMessages changes (conversation switch)
+  const resetMessages = useCallback((msgs: ChatMessage[]) => {
+    setMessages(msgs);
+  }, []);
+
+  const sendMessage = useCallback(
+    async (userText: string) => {
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        role: "user",
+        content: userText,
+      };
+
+      const updatedMessages = [...messages, userMsg];
+
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "",
+        toolCalls: [],
+      };
+
+      setMessages([...updatedMessages, assistantMsg]);
+      setIsStreaming(true);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // Create conversation on first message if needed
+      let activeConvoId = convoIdRef.current;
+      if (!activeConvoId && deviceId) {
+        try {
+          const title = userText.length > 60 ? userText.slice(0, 57) + "..." : userText;
+          activeConvoId = await createConversation({ deviceId, title });
+          convoIdRef.current = activeConvoId;
+          onConversationCreated?.(activeConvoId);
+        } catch {
+          // Continue without persistence if creation fails
+        }
+      }
+
+      // Save user message to Convex
+      if (activeConvoId) {
+        try {
+          await saveMessageMut({
+            conversationId: activeConvoId,
+            role: "user",
+            content: userText,
+          });
+        } catch {}
+      }
+
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`${API_URL}/api/chat`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            messages: updatedMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+              toolCalls: m.toolCalls,
+            })),
+            panels,
+            presentation: presentationData || undefined,
+            presentationSummaries: presentationSummaries || undefined,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(
+            response.status === 401
+              ? "Not authenticated. Please sign out and sign back in."
+              : `Server error (${response.status}): ${errorBody}`
+          );
+        }
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        let currentEvent = "";
+        let dataLines: string[] = [];
+
+        // Track accumulated content, thinking, and tool calls for saving
+        let accumulatedContent = "";
+        let accumulatedThinking = "";
+        let accumulatedToolCalls: ToolCall[] = [];
+
+        function processEvent() {
+          if (!currentEvent || dataLines.length === 0) return;
+
+          const data = dataLines.join("\n");
+
+          switch (currentEvent) {
+            case "thinking":
+              accumulatedThinking += data;
+              setMessages((prev) =>
+                updateLastAssistant(prev, (msg) => ({
+                  ...msg,
+                  thinking: (msg.thinking || "") + data,
+                }))
+              );
+              break;
+
+            case "text":
+              accumulatedContent += data;
+              setMessages((prev) =>
+                updateLastAssistant(prev, (msg) => ({
+                  ...msg,
+                  content: msg.content + data,
+                }))
+              );
+              break;
+
+            case "tool_call_start":
+              // Tool name is known immediately — show loading state
+              try {
+                const start = JSON.parse(data) as { name: string };
+                accumulatedToolCalls.push({ name: start.name, args: {} });
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => ({
+                    ...msg,
+                    toolCalls: [...(msg.toolCalls || []), { name: start.name, args: {} }],
+                  }))
+                );
+              } catch {}
+              break;
+
+            case "tool_call":
+              // Full tool call with args — update the existing placeholder
+              try {
+                const call = JSON.parse(data) as { name: string; args: Record<string, unknown> };
+                // Update accumulated entry
+                for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
+                  if (accumulatedToolCalls[i].name === call.name && Object.keys(accumulatedToolCalls[i].args).length === 0) {
+                    accumulatedToolCalls[i].args = call.args;
+                    break;
+                  }
+                }
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => {
+                    const calls = [...(msg.toolCalls || [])];
+                    // Find the placeholder entry and fill in args
+                    for (let i = calls.length - 1; i >= 0; i--) {
+                      if (calls[i].name === call.name && Object.keys(calls[i].args).length === 0) {
+                        calls[i] = { ...calls[i], args: call.args };
+                        break;
+                      }
+                    }
+                    return { ...msg, toolCalls: calls };
+                  })
+                );
+              } catch {}
+              break;
+
+            case "tool_result":
+              try {
+                const result = JSON.parse(data) as {
+                  name: string;
+                  args: Record<string, unknown>;
+                  result: ToolCall["result"];
+                };
+                // Update accumulated tool calls
+                for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
+                  if (accumulatedToolCalls[i].name === result.name && !accumulatedToolCalls[i].result) {
+                    accumulatedToolCalls[i].result = result.result;
+                    break;
+                  }
+                }
+                setMessages((prev) =>
+                  updateLastAssistant(prev, (msg) => {
+                    const calls = [...(msg.toolCalls || [])];
+                    for (let i = calls.length - 1; i >= 0; i--) {
+                      if (calls[i].name === result.name && !calls[i].result) {
+                        calls[i] = { ...calls[i], result: result.result };
+                        break;
+                      }
+                    }
+                    return { ...msg, toolCalls: calls };
+                  })
+                );
+              } catch {}
+              break;
+
+            case "open_panel":
+              try {
+                const panelInfo = JSON.parse(data) as OpenPanelInfo;
+                onOpenPanel?.(panelInfo);
+              } catch {}
+              break;
+
+            case "presentation_streaming":
+              // Partial HTML as the AI generates the presentation
+              try {
+                const partial = JSON.parse(data) as { html: string };
+                onPresentationStreaming?.(partial.html);
+              } catch {}
+              break;
+
+            case "presentation_update":
+              // Final complete presentation (document or slides)
+              try {
+                const update = JSON.parse(data) as PresentationUpdateData;
+                onPresentationUpdate?.(update);
+              } catch {}
+              break;
+
+            case "switch_presentation":
+              // Server wants frontend to switch to a different presentation
+              try {
+                const sw = JSON.parse(data) as { presentationId: string };
+                onSwitchPresentation?.(sw.presentationId);
+              } catch {}
+              break;
+
+            case "error":
+              accumulatedContent = `Error: ${data}`;
+              setMessages((prev) =>
+                updateLastAssistant(prev, (msg) => ({
+                  ...msg,
+                  content: `Error: ${data}`,
+                }))
+              );
+              break;
+          }
+
+          currentEvent = "";
+          dataLines = [];
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            processEvent();
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line === "") {
+              processEvent();
+            } else if (line.startsWith("event: ")) {
+              processEvent();
+              currentEvent = line.slice(7);
+            } else if (line.startsWith("data: ")) {
+              dataLines.push(line.slice(6));
+            } else if (line === "data:") {
+              dataLines.push("");
+            }
+          }
+        }
+
+        // Save assistant message to Convex after stream completes
+        if (activeConvoId && (accumulatedContent || accumulatedThinking)) {
+          try {
+            await saveMessageMut({
+              conversationId: activeConvoId,
+              role: "assistant",
+              content: accumulatedContent,
+              thinking: accumulatedThinking || undefined,
+              toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+            });
+          } catch {}
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setMessages((prev) =>
+          updateLastAssistant(prev, (msg) => ({
+            ...msg,
+            content: "Sorry, something went wrong. Please try again.",
+          }))
+        );
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [messages, panels, token, deviceId, presentationData, presentationSummaries, createConversation, saveMessageMut, updateTitle, onConversationCreated, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation]
+  );
+
+  const cancelStream = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  return { messages, isStreaming, sendMessage, cancelStream, clearMessages, resetMessages };
+}

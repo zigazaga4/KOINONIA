@@ -1,13 +1,11 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
 # dependencies
 node_modules/
 
 # Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+frontend/.expo/
+frontend/dist/
+frontend/web-build/
+frontend/expo-env.d.ts
 
 # Native
 .kotlin/
@@ -36,6 +34,17 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# logs
+server/logs/
+frontend/logs/
+
+# server build output
+server/dist/
+
+# SQLite databases
+server/*.db
+server/*.db-journal
+
 # generated native folders
-/ios
-/android
+frontend/ios
+frontend/android
