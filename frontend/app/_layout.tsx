@@ -1,11 +1,11 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import 'react-native-reanimated';
-import { ConvexReactClient } from 'convex/react';
-import { ConvexAuthProvider, useAuthToken } from '@convex-dev/auth/react';
+import { ConvexReactClient, Authenticated, Unauthenticated, AuthLoading } from 'convex/react';
+import { ConvexAuthProvider } from '@convex-dev/auth/react';
 import * as SecureStore from 'expo-secure-store';
 import { useColorScheme } from '@/components/useColorScheme';
 import { KoinoniaColors } from '@/constants/Colors';
@@ -79,50 +79,32 @@ export default function RootLayout() {
   return <RootLayoutNav />;
 }
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
-  // Use useAuthToken() directly — useConvexAuth() has a known issue where the
-  // WebSocket handshake callback never fires, leaving isAuthenticated=false
-  // even though the auth provider has a valid token.
-  const token = useAuthToken();
-  const [isReady, setIsReady] = useState(false);
+function AuthRedirect() {
   const segments = useSegments();
   const router = useRouter();
 
-  const isAuthenticated = token !== undefined && token !== null;
-
-  // Small delay on mount to let the auth provider load tokens from storage
   useEffect(() => {
-    const timer = setTimeout(() => setIsReady(true), 100);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!isReady) return;
-
     const inAuthGroup = segments[0] === '(auth)';
-
-    if (isAuthenticated && inAuthGroup) {
+    if (inAuthGroup) {
       router.replace('/(tabs)');
-    } else if (!isAuthenticated && !inAuthGroup) {
+    }
+  }, [segments]);
+
+  return null;
+}
+
+function UnauthRedirect() {
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    const inAuthGroup = segments[0] === '(auth)';
+    if (!inAuthGroup) {
       router.replace('/(auth)');
     }
-  }, [isAuthenticated, isReady, segments]);
+  }, [segments]);
 
-  if (!isReady) {
-    return (
-      <View style={styles.splash}>
-        <Text style={styles.splashTitle}>Koinonia</Text>
-        <Text style={styles.splashSubtitle}>Fellowship in the Word</Text>
-        <ActivityIndicator
-          size="large"
-          color={KoinoniaColors.primary}
-          style={styles.splashSpinner}
-        />
-      </View>
-    );
-  }
-
-  return <>{children}</>;
+  return null;
 }
 
 function RootLayoutNav() {
@@ -132,12 +114,27 @@ function RootLayoutNav() {
     <ConvexAuthProvider client={convex} storage={Platform.OS !== 'web' ? nativeStorage : undefined}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <PresentationProvider>
-          <AuthGuard>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-          </AuthGuard>
+          <AuthLoading>
+            <View style={styles.splash}>
+              <Text style={styles.splashTitle}>Koinonia</Text>
+              <Text style={styles.splashSubtitle}>Fellowship in the Word</Text>
+              <ActivityIndicator
+                size="large"
+                color={KoinoniaColors.primary}
+                style={styles.splashSpinner}
+              />
+            </View>
+          </AuthLoading>
+          <Authenticated>
+            <AuthRedirect />
+          </Authenticated>
+          <Unauthenticated>
+            <UnauthRedirect />
+          </Unauthenticated>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(tabs)" />
+          </Stack>
         </PresentationProvider>
       </ThemeProvider>
     </ConvexAuthProvider>

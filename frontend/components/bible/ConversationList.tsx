@@ -13,7 +13,6 @@ import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
 
 type Props = {
-  deviceId: string;
   activeConversationId: Id<"conversations"> | null;
   onSelect: (id: Id<"conversations">) => void;
   onClose: () => void;
@@ -34,12 +33,11 @@ function timeAgo(timestamp: number): string {
 }
 
 export function ConversationList({
-  deviceId,
   activeConversationId,
   onSelect,
   onClose,
 }: Props) {
-  const conversations = useQuery(api.conversations.list, { deviceId });
+  const conversations = useQuery(api.conversations.list, {});
   const removeConversation = useMutation(api.conversations.remove);
 
   const handleDelete = async (id: Id<"conversations">) => {

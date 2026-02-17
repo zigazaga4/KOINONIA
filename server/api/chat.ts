@@ -155,7 +155,27 @@ The user can have multiple saved presentations. Use these tools to manage them:
 - **presentation_id parameter**: All presentation tools (write, read, edit) accept an optional \`presentation_id\`. Use an existing presentation's ID to target it specifically, or use \`"new"\` with write_presentation to create a brand new presentation.
 - If you omit \`presentation_id\`, the tool operates on the currently active presentation.
 - **Important**: If you target a presentation that isn't currently active (via read_presentation or edit_presentation), the system will switch to it automatically. However, the content won't be available until the user's next message — so tell the user you've loaded it and ask what they'd like to do.
-- For write_presentation, you can write to any presentation ID immediately since you provide the full content.`;
+- For write_presentation, you can write to any presentation ID immediately since you provide the full content.
+
+## Highlighting & Notes
+
+You can highlight word ranges in verses and create notes using the highlight_verse and create_note tools.
+
+### Highlighting (highlight_verse)
+- Use this when the user asks you to highlight, mark, or color words or verses
+- Word indices are 0-based: split the verse text on whitespace and count from 0
+- To highlight an entire verse, use start_word: 0 and end_word equal to the word count minus 1
+- To highlight a specific phrase, find its word positions in the verse text
+- Use read_passage first if you need to see the verse text and count words
+- Colors are hex strings (e.g. "#C8902E" for gold, "#B75064" for rose, "#7A8B5C" for olive, "#5A96C8" for sky, "#DCA064" for peach, "#9678B4" for lavender, "#50B496" for mint) — you can use any hex color
+- **IMPORTANT: Always ask the user what color they want before highlighting.** Do NOT pick a color on your own. Ask something like "What color would you like?" and suggest a few options. If the user already specified a color in their request, use that.
+
+### Notes (create_note)
+- Use this when the user asks you to add a note, annotate, or comment on a verse
+- Notes appear in the user's Notes tab and as indicators on the verse
+- Write rich, insightful content — study notes, key observations, historical context, cross-references
+- Colors are hex strings (e.g. "#C8902E" for gold) — you can use any hex color
+- **IMPORTANT: Always ask the user what color they want for the note.** Do NOT pick a color on your own. If the user already specified a color, use that.`;
 
 
 // Build the available translations list from the database at startup
@@ -386,6 +406,72 @@ const TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["title", "mode"],
+    },
+  },
+  {
+    name: "highlight_verse",
+    description:
+      "Highlight a word range in a Bible verse with a color. The highlight is saved and persists across sessions. Use this when the user asks you to highlight, mark, or color specific words or verses. Word indices are 0-based, computed by splitting the verse text on whitespace. To highlight an entire verse, set start_word to 0 and end_word to the last word index.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        book_name: {
+          type: "string",
+          description: 'Book name (e.g., "Genesis", "Matthew", "1 Corinthians"). Use the standard English name.',
+        },
+        chapter: {
+          type: "number",
+          description: "Chapter number.",
+        },
+        verse: {
+          type: "number",
+          description: "Verse number.",
+        },
+        start_word: {
+          type: "number",
+          description: "Starting word index (0-based, inclusive). Words are obtained by splitting the verse text on whitespace.",
+        },
+        end_word: {
+          type: "number",
+          description: "Ending word index (0-based, inclusive).",
+        },
+        color: {
+          type: "string",
+          description: "Highlight color as a hex string (e.g. \"#C8902E\", \"#B75064\"). Choose any color that feels appropriate or that the user requests.",
+        },
+      },
+      required: ["book_name", "chapter", "verse", "start_word", "end_word", "color"],
+    },
+  },
+  {
+    name: "create_note",
+    description:
+      "Create a note on a Bible verse. The note is saved and visible in the Notes tab. Use this when the user asks you to annotate, note, or comment on a verse. The note content can include your study insights, the user's reflection, or any relevant commentary.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        book_name: {
+          type: "string",
+          description: 'Book name (e.g., "Genesis", "Matthew", "1 Corinthians").',
+        },
+        chapter: {
+          type: "number",
+          description: "Chapter number.",
+        },
+        verse: {
+          type: "number",
+          description: "Verse number.",
+        },
+        content: {
+          type: "string",
+          description: "The note content. Can be markdown-formatted study notes, reflections, or commentary.",
+        },
+        color: {
+          type: "string",
+          description: "Color for the note indicator as a hex string (e.g. \"#C8902E\"). Defaults to gold if not specified.",
+        },
+      },
+      required: ["book_name", "chapter", "verse", "content"],
     },
   },
 ];
@@ -1238,6 +1324,85 @@ chat.post("/", async (c) => {
               success: true,
               message: "Presentation updated. The content is now visible in the Presentation tab.",
             });
+          } else if (toolUse.name === "highlight_verse") {
+            const input = toolUse.input as {
+              book_name: string; chapter: number; verse: number;
+              start_word: number; end_word: number; color: string;
+            };
+            // Resolve book name to book_id
+            let book = queries.bookByName.get(panels?.[0]?.translation || "KJV", input.book_name) as
+              | { book_id: number; name: string; chapters: number }
+              | undefined;
+            if (!book) {
+              book = queries.bookByName.get("KJV", input.book_name) as
+                | { book_id: number; name: string; chapters: number }
+                | undefined;
+            }
+            if (!book) {
+              result = JSON.stringify({ error: `Book "${input.book_name}" not found.` });
+            } else {
+              // Send highlight event to the frontend — it executes the Convex mutation
+              await stream.writeSSE({
+                event: "highlight_verse",
+                data: JSON.stringify({
+                  bookId: book.book_id,
+                  chapter: input.chapter,
+                  verse: input.verse,
+                  startWord: input.start_word,
+                  endWord: input.end_word,
+                  color: input.color,
+                }),
+              });
+              result = JSON.stringify({
+                success: true,
+                message: `Highlighted ${book.name} ${input.chapter}:${input.verse} words ${input.start_word}-${input.end_word} in ${input.color}.`,
+              });
+            }
+          } else if (toolUse.name === "create_note") {
+            const input = toolUse.input as {
+              book_name: string; chapter: number; verse: number;
+              content: string; color?: string;
+            };
+            // Resolve book name to book_id and get verse text
+            let book = queries.bookByName.get(panels?.[0]?.translation || "KJV", input.book_name) as
+              | { book_id: number; name: string; chapters: number }
+              | undefined;
+            if (!book) {
+              book = queries.bookByName.get("KJV", input.book_name) as
+                | { book_id: number; name: string; chapters: number }
+                | undefined;
+            }
+            if (!book) {
+              result = JSON.stringify({ error: `Book "${input.book_name}" not found.` });
+            } else {
+              // Fetch the verse text for the snapshot
+              const verses = fetchVerses(
+                panels?.[0]?.translation || "KJV",
+                book.book_id,
+                input.chapter,
+                input.verse,
+                input.verse
+              );
+              const verseText = verses?.[0]?.text || "";
+
+              // Send note event to the frontend
+              await stream.writeSSE({
+                event: "create_note",
+                data: JSON.stringify({
+                  bookId: book.book_id,
+                  bookName: book.name,
+                  chapter: input.chapter,
+                  verse: input.verse,
+                  content: input.content,
+                  color: input.color || "#C8902E",
+                  verseText,
+                }),
+              });
+              result = JSON.stringify({
+                success: true,
+                message: `Note created on ${book.name} ${input.chapter}:${input.verse}.`,
+              });
+            }
           } else {
             result = JSON.stringify({ error: `Unknown tool: ${toolUse.name}` });
           }

@@ -5,7 +5,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../server/convex/_generated/api";
@@ -14,12 +14,12 @@ import { ChatPanel } from "@/components/bible/ChatPanel";
 import { ChatFAB } from "@/components/bible/ChatFAB";
 import { DraggableDivider } from "@/components/bible/DraggableDivider";
 import { PresentationCanvas } from "@/components/presentation/PresentationCanvas";
+import { NotesTab } from "@/components/notes/NotesTab";
 import { usePresentation } from "@/contexts/PresentationContext";
-import { useDeviceId } from "@/hooks/useDeviceId";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
 import type { BibleContext } from "@/components/bible/BibleReader";
-import type { PanelInfo } from "@/hooks/useChatStream";
+import type { PanelInfo, HighlightVerseData, CreateNoteData } from "@/hooks/useChatStream";
 
 const DESKTOP_BREAKPOINT = 768;
 const MIN_PANEL_PCT = 15;
@@ -27,7 +27,7 @@ const MAX_CHAT_PCT = 37;
 const DEFAULT_READER_PCT = 65;
 const MAX_SPLITS = 2;
 
-type ActiveTab = "bible" | "presentation";
+type ActiveTab = "bible" | "presentation" | "notes";
 
 type SplitPanel = {
   id: string;
@@ -101,6 +101,32 @@ function ContentTabBar({
           Presentation
         </Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          tabBarStyles.tab,
+          activeTab === "notes" && tabBarStyles.tabActive,
+        ]}
+        onPress={() => onChangeTab("notes")}
+        activeOpacity={0.7}
+      >
+        <FontAwesome
+          name="sticky-note-o"
+          size={14}
+          color={
+            activeTab === "notes"
+              ? KoinoniaColors.primary
+              : KoinoniaColors.warmGray
+          }
+        />
+        <Text
+          style={[
+            tabBarStyles.tabText,
+            activeTab === "notes" && tabBarStyles.tabTextActive,
+          ]}
+        >
+          Notes
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -109,14 +135,20 @@ export default function BibleScreen() {
   const { width } = useWindowDimensions();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
   const { setDocumentPresentation, setSlidesPresentation, setPresentationFromSaved, presentation, hasContent } = usePresentation();
-  const deviceId = useDeviceId();
   const savePresentationMut = useMutation(api.presentations.save);
   const updatePresentationMut = useMutation(api.presentations.update);
-  const savedPresentations = useQuery(api.presentations.list, deviceId ? { deviceId } : "skip");
+  const createHighlightMut = useMutation(api.highlights.create);
+  const createNoteMut = useMutation(api.notes.create);
+  const savedPresentations = useQuery(api.presentations.list, {});
   const [activeTab, setActiveTab] = useState<ActiveTab>("bible");
   const [chatVisible, setChatVisible] = useState(false);
   const [splits, setSplits] = useState<SplitPanel[]>([]);
   const [readerPct, setReaderPct] = useState(DEFAULT_READER_PCT);
+
+  // For navigating to a verse from Notes tab
+  const [primaryNav, setPrimaryNav] = useState<{ bookId: number; chapter: number; key: number }>({
+    bookId: 1, chapter: 1, key: 0,
+  });
 
   // Track contexts from all panels by ID
   const [panelContexts, setPanelContexts] = useState<
@@ -207,7 +239,6 @@ export default function BibleScreen() {
       setActiveTab("presentation");
 
       // Persist to Convex
-      if (!deviceId) return;
       try {
         // Determine which presentation to save to
         const targetId = data.presentationId === "new" ? null : (data.presentationId || presentation.savedId);
@@ -230,7 +261,6 @@ export default function BibleScreen() {
           });
         } else {
           const id = await savePresentationMut({
-            deviceId,
             title: data.title || "Untitled Presentation",
             mode: data.mode,
             html: data.html,
@@ -249,7 +279,7 @@ export default function BibleScreen() {
         // Silently fail — the presentation is still visible locally
       }
     },
-    [setDocumentPresentation, setSlidesPresentation, setPresentationFromSaved, deviceId, presentation.savedId, savePresentationMut, updatePresentationMut]
+    [setDocumentPresentation, setSlidesPresentation, setPresentationFromSaved, presentation.savedId, savePresentationMut, updatePresentationMut]
   );
 
   const handlePresentationStreaming = useCallback(
@@ -278,6 +308,42 @@ export default function BibleScreen() {
       }
     },
     [savedPresentations, setPresentationFromSaved]
+  );
+
+  const handleNavigateToVerse = useCallback((bookId: number, chapter: number) => {
+    setPrimaryNav((prev) => ({ bookId, chapter, key: prev.key + 1 }));
+    setActiveTab("bible");
+  }, []);
+
+  // AI tool: highlight a word range in a verse
+  const handleHighlightVerse = useCallback(
+    (data: HighlightVerseData) => {
+      createHighlightMut({
+        bookId: data.bookId,
+        chapter: data.chapter,
+        verse: data.verse,
+        startWord: data.startWord,
+        endWord: data.endWord,
+        color: data.color,
+      }).catch(() => {});
+    },
+    [createHighlightMut]
+  );
+
+  // AI tool: create a note on a verse
+  const handleCreateNote = useCallback(
+    (data: CreateNoteData) => {
+      createNoteMut({
+        bookId: data.bookId,
+        chapter: data.chapter,
+        verse: data.verse,
+        content: data.content,
+        color: data.color,
+        verseText: data.verseText,
+        bookName: data.bookName,
+      }).catch(() => {});
+    },
+    [createNoteMut]
   );
 
   const handleCloseSplit = useCallback((id: string) => {
@@ -316,9 +382,12 @@ export default function BibleScreen() {
     <View style={styles.splitContainer}>
       <View style={{ flex: 1 }}>
         <BibleReader
+          key={`primary-${primaryNav.key}`}
           onContextChange={(ctx) => handleContextChange("primary", ctx)}
           isDesktop={isDesktop}
           onSplitNavigate={splitNav}
+          initialBookId={primaryNav.bookId}
+          initialChapter={primaryNav.chapter}
         />
       </View>
 
@@ -372,7 +441,7 @@ export default function BibleScreen() {
         <View style={styles.desktopRow}>
           <View style={{ flex: readerPct }}>
             <ContentTabBar activeTab={activeTab} onChangeTab={setActiveTab} />
-            {activeTab === "bible" ? bibleContent : <PresentationCanvas />}
+            {activeTab === "bible" ? bibleContent : activeTab === "notes" ? <NotesTab onNavigateToVerse={handleNavigateToVerse} /> : <PresentationCanvas />}
           </View>
           <DraggableDivider onDrag={handleMainDividerDrag} />
           <View style={{ flex: chatPct }}>
@@ -382,6 +451,8 @@ export default function BibleScreen() {
               onPresentationUpdate={handlePresentationUpdate}
               onPresentationStreaming={handlePresentationStreaming}
               onSwitchPresentation={handleSwitchPresentation}
+              onHighlightVerse={handleHighlightVerse}
+              onCreateNote={handleCreateNote}
               presentation={hasContent ? { id: presentation.savedId || undefined, mode: presentation.mode, html: presentation.html || undefined, themeCss: presentation.themeCss || undefined, slides: presentation.slides.length > 0 ? presentation.slides : undefined } : undefined}
               presentationSummaries={presentationSummaries}
             />
@@ -396,8 +467,13 @@ export default function BibleScreen() {
       <ContentTabBar activeTab={activeTab} onChangeTab={setActiveTab} />
       {activeTab === "bible" ? (
         <BibleReader
+          key={`primary-mobile-${primaryNav.key}`}
           onContextChange={(ctx) => handleContextChange("primary", ctx)}
+          initialBookId={primaryNav.bookId}
+          initialChapter={primaryNav.chapter}
         />
+      ) : activeTab === "notes" ? (
+        <NotesTab onNavigateToVerse={handleNavigateToVerse} />
       ) : (
         <PresentationCanvas />
       )}
@@ -411,6 +487,8 @@ export default function BibleScreen() {
         onPresentationUpdate={handlePresentationUpdate}
         onPresentationStreaming={handlePresentationStreaming}
         onSwitchPresentation={handleSwitchPresentation}
+        onHighlightVerse={handleHighlightVerse}
+        onCreateNote={handleCreateNote}
         presentation={hasContent ? { id: presentation.savedId || undefined, mode: presentation.mode, html: presentation.html || undefined, themeCss: presentation.themeCss || undefined, slides: presentation.slides.length > 0 ? presentation.slides : undefined } : undefined}
         presentationSummaries={presentationSummaries}
       />

@@ -2,7 +2,6 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform, ActivityIndicator }
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { usePresentation } from "@/contexts/PresentationContext";
-import { useDeviceId } from "@/hooks/useDeviceId";
 import { PresentationList } from "./PresentationList";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
@@ -12,7 +11,6 @@ type SlideData = { title: string; html: string };
 
 export function PresentationCanvas() {
   const { presentation, hasContent, setPresentationFromSaved, setCurrentSlide, clearPresentation } = usePresentation();
-  const deviceId = useDeviceId();
   const [showHistory, setShowHistory] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -136,20 +134,17 @@ ${slide.html}
           Ask the AI to create a sermon outline, visual aid, or teaching
           material. It will appear here as a live presentation.
         </Text>
-        {deviceId && (
-          <TouchableOpacity
-            style={styles.historyBtn}
-            onPress={() => setShowHistory(true)}
-            activeOpacity={0.7}
-          >
-            <FontAwesome name="history" size={14} color={KoinoniaColors.primary} />
-            <Text style={styles.historyBtnText}>View Saved Presentations</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.historyBtn}
+          onPress={() => setShowHistory(true)}
+          activeOpacity={0.7}
+        >
+          <FontAwesome name="history" size={14} color={KoinoniaColors.primary} />
+          <Text style={styles.historyBtnText}>View Saved Presentations</Text>
+        </TouchableOpacity>
 
-        {showHistory && deviceId && (
+        {showHistory && (
           <PresentationList
-            deviceId={deviceId}
             activePresentationId={presentation.savedId}
             onSelect={handleSelectPresentation}
             onClose={() => setShowHistory(false)}
@@ -216,14 +211,12 @@ ${slide.html}
                 </View>
               )}
             </View>
-            {deviceId && (
-              <TouchableOpacity
-                onPress={() => setShowHistory(!showHistory)}
-                style={styles.titleBtn}
-              >
-                <FontAwesome name="history" size={14} color={KoinoniaColors.warmGray} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              onPress={() => setShowHistory(!showHistory)}
+              style={styles.titleBtn}
+            >
+              <FontAwesome name="history" size={14} color={KoinoniaColors.warmGray} />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -288,9 +281,8 @@ ${slide.html}
           </View>
         )}
 
-        {showHistory && deviceId && (
+        {showHistory && (
           <PresentationList
-            deviceId={deviceId}
             activePresentationId={presentation.savedId}
             onSelect={handleSelectPresentation}
             onClose={() => setShowHistory(false)}

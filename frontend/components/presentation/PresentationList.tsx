@@ -25,7 +25,6 @@ type PresentationRecord = {
 };
 
 type Props = {
-  deviceId: string;
   activePresentationId: string | null;
   onSelect: (id: Id<"presentations">, data: { mode?: string; html?: string; title: string; themeCss?: string; slides?: SlideData[] }) => void;
   onClose: () => void;
@@ -47,13 +46,12 @@ function timeAgo(timestamp: number): string {
 }
 
 export function PresentationList({
-  deviceId,
   activePresentationId,
   onSelect,
   onClose,
   onNew,
 }: Props) {
-  const presentations = useQuery(api.presentations.list, { deviceId });
+  const presentations = useQuery(api.presentations.list, {});
   const removePresentation = useMutation(api.presentations.remove);
 
   const handleDelete = async (id: Id<"presentations">) => {

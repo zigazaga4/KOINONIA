@@ -18,10 +18,9 @@ import { ChatInput } from "./ChatInput";
 import { ConversationList } from "./ConversationList";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useApiAuth } from "@/hooks/useApiAuth";
-import { useDeviceId } from "@/hooks/useDeviceId";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
-import type { PanelInfo, ChatMessage as ChatMessageType, OpenPanelInfo, PresentationUpdateData, PresentationSummary } from "@/hooks/useChatStream";
+import type { PanelInfo, ChatMessage as ChatMessageType, OpenPanelInfo, PresentationUpdateData, PresentationSummary, HighlightVerseData, CreateNoteData } from "@/hooks/useChatStream";
 
 type SlideData = { title: string; html: string };
 
@@ -34,13 +33,14 @@ type Props = {
   onPresentationUpdate?: (data: PresentationUpdateData) => void;
   onPresentationStreaming?: (partialHtml: string) => void;
   onSwitchPresentation?: (presentationId: string) => void;
+  onHighlightVerse?: (data: HighlightVerseData) => void;
+  onCreateNote?: (data: CreateNoteData) => void;
   presentation?: { id?: string; mode: string; html?: string; themeCss?: string; slides?: SlideData[] };
   presentationSummaries?: PresentationSummary[];
 };
 
-export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, presentation, presentationSummaries }: Props) {
+export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote, presentation, presentationSummaries }: Props) {
   const { token } = useApiAuth();
-  const deviceId = useDeviceId();
   const [conversationId, setConversationId] = useState<Id<"conversations"> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [initialMessages, setInitialMessages] = useState<ChatMessageType[]>([]);
@@ -62,7 +62,6 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
   const { messages, isStreaming, sendMessage, resetMessages } = useChatStream({
     panels,
     token,
-    deviceId,
     conversationId,
     onConversationCreated: handleConversationCreated,
     initialMessages,
@@ -70,6 +69,8 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
     onPresentationUpdate,
     onPresentationStreaming,
     onSwitchPresentation,
+    onHighlightVerse,
+    onCreateNote,
     presentation,
     presentationSummaries,
   });
@@ -130,14 +131,12 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
         </Text>
 
         <View style={styles.headerRight}>
-          {deviceId && (
-            <TouchableOpacity
-              onPress={() => setShowHistory(!showHistory)}
-              style={styles.headerBtn}
-            >
-              <FontAwesome name="history" size={16} color={KoinoniaColors.warmGray} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            onPress={() => setShowHistory(!showHistory)}
+            style={styles.headerBtn}
+          >
+            <FontAwesome name="history" size={16} color={KoinoniaColors.warmGray} />
+          </TouchableOpacity>
           {isModal && onClose && (
             <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
               <FontAwesome name="times" size={20} color={KoinoniaColors.warmGray} />
@@ -187,9 +186,8 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
 
       <ChatInput onSend={sendMessage} isStreaming={isStreaming} />
 
-      {showHistory && deviceId && (
+      {showHistory && (
         <ConversationList
-          deviceId={deviceId}
           activeConversationId={conversationId}
           onSelect={handleSelectConversation}
           onClose={() => setShowHistory(false)}

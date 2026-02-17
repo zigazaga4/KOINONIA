@@ -80,10 +80,28 @@ export type PresentationUpdateData = {
   presentationId?: string;
 };
 
+export type HighlightVerseData = {
+  bookId: number;
+  chapter: number;
+  verse: number;
+  startWord: number;
+  endWord: number;
+  color: string;
+};
+
+export type CreateNoteData = {
+  bookId: number;
+  bookName: string;
+  chapter: number;
+  verse: number;
+  content: string;
+  color: string;
+  verseText: string;
+};
+
 type UseChatStreamOptions = {
   panels: PanelInfo[];
   token: string | null;
-  deviceId: string | null;
   conversationId: Id<"conversations"> | null;
   presentation?: { id?: string; mode: string; html?: string; themeCss?: string; slides?: SlideData[] };
   presentationSummaries?: PresentationSummary[];
@@ -93,12 +111,13 @@ type UseChatStreamOptions = {
   onPresentationUpdate?: (data: PresentationUpdateData) => void;
   onPresentationStreaming?: (partialHtml: string) => void;
   onSwitchPresentation?: (presentationId: string) => void;
+  onHighlightVerse?: (data: HighlightVerseData) => void;
+  onCreateNote?: (data: CreateNoteData) => void;
 };
 
 export function useChatStream({
   panels,
   token,
-  deviceId,
   conversationId,
   onConversationCreated,
   initialMessages,
@@ -106,6 +125,8 @@ export function useChatStream({
   onPresentationUpdate,
   onPresentationStreaming,
   onSwitchPresentation,
+  onHighlightVerse,
+  onCreateNote,
   presentation: presentationData,
   presentationSummaries,
 }: UseChatStreamOptions) {
@@ -149,10 +170,10 @@ export function useChatStream({
 
       // Create conversation on first message if needed
       let activeConvoId = convoIdRef.current;
-      if (!activeConvoId && deviceId) {
+      if (!activeConvoId) {
         try {
           const title = userText.length > 60 ? userText.slice(0, 57) + "..." : userText;
-          activeConvoId = await createConversation({ deviceId, title });
+          activeConvoId = await createConversation({ title });
           convoIdRef.current = activeConvoId;
           onConversationCreated?.(activeConvoId);
         } catch {
@@ -380,6 +401,20 @@ export function useChatStream({
               } catch {}
               break;
 
+            case "highlight_verse":
+              try {
+                const hlData = JSON.parse(data) as HighlightVerseData;
+                onHighlightVerse?.(hlData);
+              } catch {}
+              break;
+
+            case "create_note":
+              try {
+                const noteData = JSON.parse(data) as CreateNoteData;
+                onCreateNote?.(noteData);
+              } catch {}
+              break;
+
             case "web_search": {
               // Claude is searching the web — create a tool call block with query
               try {
@@ -553,7 +588,7 @@ export function useChatStream({
         setIsStreaming(false);
       }
     },
-    [messages, panels, token, deviceId, presentationData, presentationSummaries, createConversation, saveMessageMut, updateTitle, onConversationCreated, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation]
+    [messages, panels, token, presentationData, presentationSummaries, createConversation, saveMessageMut, updateTitle, onConversationCreated, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote]
   );
 
   const cancelStream = useCallback(() => {

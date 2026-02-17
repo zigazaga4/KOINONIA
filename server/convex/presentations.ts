@@ -1,13 +1,16 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
-// List presentations for a device, newest first
+// List presentations for the authenticated user, newest first
 export const list = query({
-  args: { deviceId: v.string() },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
     return await ctx.db
       .query("presentations")
-      .withIndex("by_device", (q) => q.eq("deviceId", args.deviceId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .take(50);
   },
@@ -24,7 +27,6 @@ export const get = query({
 // Save a new presentation
 export const save = mutation({
   args: {
-    deviceId: v.string(),
     title: v.string(),
     mode: v.optional(v.string()),
     html: v.optional(v.string()),
@@ -32,9 +34,11 @@ export const save = mutation({
     slides: v.optional(v.array(v.object({ title: v.string(), html: v.string() }))),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
     const now = Date.now();
     return await ctx.db.insert("presentations", {
-      deviceId: args.deviceId,
+      userId,
       title: args.title || "Untitled Presentation",
       mode: args.mode || "document",
       html: args.html,
@@ -64,6 +68,40 @@ export const update = mutation({
     if (args.themeCss !== undefined) patch.themeCss = args.themeCss;
     if (args.slides !== undefined) patch.slides = args.slides;
     await ctx.db.patch(args.presentationId, patch);
+  },
+});
+
+// One-time migration: claim all orphaned (deviceId-only) presentations for the current user
+export const claimOrphaned = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const all = await ctx.db.query("presentations").collect();
+    let claimed = 0;
+    for (const p of all) {
+      if (!p.userId) {
+        await ctx.db.patch(p._id, { userId });
+        claimed++;
+      }
+    }
+    return claimed;
+  },
+});
+
+// CLI migration: assign all orphaned records to the given userId
+export const migrateOrphaned = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("presentations").collect();
+    let claimed = 0;
+    for (const p of all) {
+      if (!p.userId) {
+        await ctx.db.patch(p._id, { userId: args.userId });
+        claimed++;
+      }
+    }
+    return claimed;
   },
 });
 

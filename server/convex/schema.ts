@@ -56,11 +56,12 @@ export default defineSchema({
 
   // AI chat conversations
   conversations: defineTable({
-    deviceId: v.string(),
+    userId: v.optional(v.id("users")),
+    deviceId: v.optional(v.string()), // legacy — kept for backward compat with old records
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_device", ["deviceId", "updatedAt"]),
+  }).index("by_user", ["userId", "updatedAt"]),
 
   // AI chat messages (separate from group messages)
   aiMessages: defineTable({
@@ -82,7 +83,8 @@ export default defineSchema({
 
   // Saved presentations (created by AI)
   presentations: defineTable({
-    deviceId: v.string(),
+    userId: v.optional(v.id("users")),
+    deviceId: v.optional(v.string()), // legacy — kept for backward compat with old records
     title: v.string(),
     mode: v.optional(v.string()), // "document" | "slides" — missing means "document" (backward compat)
     html: v.optional(v.string()), // document mode
@@ -90,5 +92,33 @@ export default defineSchema({
     slides: v.optional(v.array(v.object({ title: v.string(), html: v.string() }))), // slides mode
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_device", ["deviceId", "updatedAt"]),
+  }).index("by_user", ["userId", "updatedAt"]),
+
+  // Bible verse highlights
+  highlights: defineTable({
+    userId: v.id("users"),
+    bookId: v.number(),
+    chapter: v.number(),
+    verse: v.number(),
+    startWord: v.number(),
+    endWord: v.number(),
+    color: v.string(),
+    createdAt: v.number(),
+  }).index("by_user_chapter", ["userId", "bookId", "chapter"]),
+
+  // Bible verse notes
+  notes: defineTable({
+    userId: v.id("users"),
+    bookId: v.number(),
+    chapter: v.number(),
+    verse: v.number(),
+    content: v.string(),
+    color: v.string(),
+    verseText: v.string(),
+    bookName: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_chapter", ["userId", "bookId", "chapter"])
+    .index("by_user_all", ["userId", "updatedAt"]),
 });

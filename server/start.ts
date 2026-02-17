@@ -1,11 +1,8 @@
-import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
+// Bun automatically loads .env.local
 
-// Dynamic imports so dotenv loads BEFORE the Anthropic SDK initializes
 const { spawn } = await import("child_process");
 const { join, dirname } = await import("path");
 const { fileURLToPath } = await import("url");
-const { serve } = await import("@hono/node-server");
 const { default: api } = await import("./api/index.js");
 const { logger, sessionLogDir } = await import("./lib/logger.js");
 
@@ -17,10 +14,13 @@ const API_PORT = Number(process.env.API_PORT) || 3141;
 logger.info(`Koinonia server starting`);
 logger.info(`Log directory: ${sessionLogDir}`);
 
-// Start Bible API server (bind to 0.0.0.0 so localhost works on all platforms)
-const server = serve({ fetch: api.fetch, port: API_PORT, hostname: "0.0.0.0" }, () => {
-  logger.info(`Bible API server running on http://localhost:${API_PORT}`);
+// Start Bible API server using Bun's native serve
+const server = Bun.serve({
+  port: API_PORT,
+  hostname: "0.0.0.0",
+  fetch: api.fetch,
 });
+logger.info(`Bible API server running on http://localhost:${server.port}`);
 
 // Start Convex dev server
 const convexBin = join(__dirname, "node_modules", ".bin", "convex");
@@ -56,18 +56,19 @@ convex.stderr!.on("data", (data: Buffer) => {
 
 convex.on("close", (code) => {
   logger.info(`Convex dev server stopped (exit code: ${code})`);
-  server.close();
-  process.exit(code ?? 0);
+  if (code !== 0) {
+    logger.warn("Convex dev server failed — API server is still running. Run 'npx convex dev' separately if needed.");
+  }
 });
 
 process.on("SIGINT", () => {
   logger.info("Shutting down...");
-  server.close();
+  server.stop();
   convex.kill("SIGINT");
 });
 
 process.on("SIGTERM", () => {
   logger.info("Shutting down...");
-  server.close();
+  server.stop();
   convex.kill("SIGTERM");
 });

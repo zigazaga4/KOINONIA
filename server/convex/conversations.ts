@@ -1,13 +1,16 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
-// List conversations for a device, newest first
+// List conversations for the authenticated user, newest first
 export const list = query({
-  args: { deviceId: v.string() },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
     return await ctx.db
       .query("conversations")
-      .withIndex("by_device", (q) => q.eq("deviceId", args.deviceId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .take(50);
   },
@@ -16,13 +19,14 @@ export const list = query({
 // Create a new conversation
 export const create = mutation({
   args: {
-    deviceId: v.string(),
     title: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
     const now = Date.now();
     return await ctx.db.insert("conversations", {
-      deviceId: args.deviceId,
+      userId,
       title: args.title,
       createdAt: now,
       updatedAt: now,
@@ -88,6 +92,40 @@ export const updateTitle = mutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.conversationId, { title: args.title });
+  },
+});
+
+// One-time migration: claim all orphaned (deviceId-only) conversations for the current user
+export const claimOrphaned = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const all = await ctx.db.query("conversations").collect();
+    let claimed = 0;
+    for (const c of all) {
+      if (!c.userId) {
+        await ctx.db.patch(c._id, { userId });
+        claimed++;
+      }
+    }
+    return claimed;
+  },
+});
+
+// CLI migration: assign all orphaned records to the given userId
+export const migrateOrphaned = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("conversations").collect();
+    let claimed = 0;
+    for (const c of all) {
+      if (!c.userId) {
+        await ctx.db.patch(c._id, { userId: args.userId });
+        claimed++;
+      }
+    }
+    return claimed;
   },
 });
 

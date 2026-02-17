@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { Database } from "bun:sqlite";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -7,8 +7,8 @@ const __dirname = dirname(__filename);
 const DB_PATH = join(__dirname, "..", "bible.db");
 
 const db = new Database(DB_PATH, { readonly: true });
-db.pragma("journal_mode = WAL");
-db.pragma("cache_size = -64000"); // 64MB cache
+db.exec("PRAGMA journal_mode = WAL");
+db.exec("PRAGMA cache_size = -64000"); // 64MB cache
 
 export const queries = {
   translations: db.prepare(
