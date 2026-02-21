@@ -13,6 +13,7 @@ import type * as conversations from "../conversations.js";
 import type * as groups from "../groups.js";
 import type * as highlights from "../highlights.js";
 import type * as http from "../http.js";
+import type * as journal from "../journal.js";
 import type * as messages from "../messages.js";
 import type * as notes from "../notes.js";
 import type * as posts from "../posts.js";
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   groups: typeof groups;
   highlights: typeof highlights;
   http: typeof http;
+  journal: typeof journal;
   messages: typeof messages;
   notes: typeof notes;
   posts: typeof posts;

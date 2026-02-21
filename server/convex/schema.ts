@@ -121,4 +121,18 @@ export default defineSchema({
   })
     .index("by_user_chapter", ["userId", "bookId", "chapter"])
     .index("by_user_all", ["userId", "updatedAt"]),
+
+  // Study journal entries
+  journalEntries: defineTable({
+    userId: v.id("users"),
+    title: v.string(),
+    content: v.string(),         // markdown
+    bookId: v.number(),
+    chapter: v.number(),
+    verse: v.optional(v.number()),
+    bookName: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId", "createdAt"]),
 });

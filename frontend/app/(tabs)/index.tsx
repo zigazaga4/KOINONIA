@@ -15,11 +15,12 @@ import { ChatFAB } from "@/components/bible/ChatFAB";
 import { DraggableDivider } from "@/components/bible/DraggableDivider";
 import { PresentationCanvas } from "@/components/presentation/PresentationCanvas";
 import { NotesTab } from "@/components/notes/NotesTab";
+import { JournalTab } from "@/components/journal/JournalTab";
 import { usePresentation } from "@/contexts/PresentationContext";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
 import type { BibleContext } from "@/components/bible/BibleReader";
-import type { PanelInfo, HighlightVerseData, CreateNoteData } from "@/hooks/useChatStream";
+import type { PanelInfo, HighlightVerseData, CreateNoteData, JournalEntryData } from "@/hooks/useChatStream";
 
 const DESKTOP_BREAKPOINT = 768;
 const MIN_PANEL_PCT = 15;
@@ -27,7 +28,7 @@ const MAX_CHAT_PCT = 37;
 const DEFAULT_READER_PCT = 65;
 const MAX_SPLITS = 2;
 
-type ActiveTab = "bible" | "presentation" | "notes";
+type ActiveTab = "bible" | "presentation" | "notes" | "journal";
 
 type SplitPanel = {
   id: string;
@@ -127,6 +128,32 @@ function ContentTabBar({
           Notes
         </Text>
       </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          tabBarStyles.tab,
+          activeTab === "journal" && tabBarStyles.tabActive,
+        ]}
+        onPress={() => onChangeTab("journal")}
+        activeOpacity={0.7}
+      >
+        <FontAwesome
+          name="pencil-square-o"
+          size={14}
+          color={
+            activeTab === "journal"
+              ? KoinoniaColors.primary
+              : KoinoniaColors.warmGray
+          }
+        />
+        <Text
+          style={[
+            tabBarStyles.tabText,
+            activeTab === "journal" && tabBarStyles.tabTextActive,
+          ]}
+        >
+          Journal
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -139,6 +166,7 @@ export default function BibleScreen() {
   const updatePresentationMut = useMutation(api.presentations.update);
   const createHighlightMut = useMutation(api.highlights.create);
   const createNoteMut = useMutation(api.notes.create);
+  const createJournalMut = useMutation(api.journal.create);
   const savedPresentations = useQuery(api.presentations.list, {});
   const [activeTab, setActiveTab] = useState<ActiveTab>("bible");
   const [chatVisible, setChatVisible] = useState(false);
@@ -346,6 +374,23 @@ export default function BibleScreen() {
     [createNoteMut]
   );
 
+  // AI tool: write a study journal entry
+  const handleJournalEntry = useCallback(
+    (data: JournalEntryData) => {
+      createJournalMut({
+        title: data.title,
+        content: data.content,
+        bookId: data.bookId,
+        chapter: data.chapter,
+        verse: data.verse,
+        bookName: data.bookName,
+      }).catch(() => {});
+      // Switch to journal tab so the user sees the new entry
+      setActiveTab("journal");
+    },
+    [createJournalMut]
+  );
+
   const handleCloseSplit = useCallback((id: string) => {
     setSplits((prev) => prev.filter((s) => s.id !== id));
     setPanelContexts((prev) => {
@@ -441,7 +486,7 @@ export default function BibleScreen() {
         <View style={styles.desktopRow}>
           <View style={{ flex: readerPct }}>
             <ContentTabBar activeTab={activeTab} onChangeTab={setActiveTab} />
-            {activeTab === "bible" ? bibleContent : activeTab === "notes" ? <NotesTab onNavigateToVerse={handleNavigateToVerse} /> : <PresentationCanvas />}
+            {activeTab === "bible" ? bibleContent : activeTab === "notes" ? <NotesTab onNavigateToVerse={handleNavigateToVerse} /> : activeTab === "journal" ? <JournalTab onNavigateToVerse={handleNavigateToVerse} /> : <PresentationCanvas />}
           </View>
           <DraggableDivider onDrag={handleMainDividerDrag} />
           <View style={{ flex: chatPct }}>
@@ -453,6 +498,7 @@ export default function BibleScreen() {
               onSwitchPresentation={handleSwitchPresentation}
               onHighlightVerse={handleHighlightVerse}
               onCreateNote={handleCreateNote}
+              onJournalEntry={handleJournalEntry}
               presentation={hasContent ? { id: presentation.savedId || undefined, mode: presentation.mode, html: presentation.html || undefined, themeCss: presentation.themeCss || undefined, slides: presentation.slides.length > 0 ? presentation.slides : undefined } : undefined}
               presentationSummaries={presentationSummaries}
             />
@@ -474,6 +520,8 @@ export default function BibleScreen() {
         />
       ) : activeTab === "notes" ? (
         <NotesTab onNavigateToVerse={handleNavigateToVerse} />
+      ) : activeTab === "journal" ? (
+        <JournalTab onNavigateToVerse={handleNavigateToVerse} />
       ) : (
         <PresentationCanvas />
       )}
@@ -489,6 +537,7 @@ export default function BibleScreen() {
         onSwitchPresentation={handleSwitchPresentation}
         onHighlightVerse={handleHighlightVerse}
         onCreateNote={handleCreateNote}
+        onJournalEntry={handleJournalEntry}
         presentation={hasContent ? { id: presentation.savedId || undefined, mode: presentation.mode, html: presentation.html || undefined, themeCss: presentation.themeCss || undefined, slides: presentation.slides.length > 0 ? presentation.slides : undefined } : undefined}
         presentationSummaries={presentationSummaries}
       />

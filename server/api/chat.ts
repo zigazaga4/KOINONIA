@@ -11,6 +11,26 @@ chat.use("/*", authMiddleware);
 
 const anthropic = new Anthropic();
 
+// Model selection via CHAT_MODEL env var: "sonnet" (default) or "haiku"
+const CHAT_MODEL_SETTING = (process.env.CHAT_MODEL || "sonnet").toLowerCase();
+const USE_SONNET = CHAT_MODEL_SETTING === "sonnet";
+
+const MODEL_ID = USE_SONNET
+  ? "claude-sonnet-4-6"
+  : "claude-haiku-4-5-20251001";
+
+// Sonnet 4.6: adaptive thinking with balanced effort
+// Haiku 4.5: legacy extended thinking with fixed budget
+const THINKING_CONFIG: any = USE_SONNET
+  ? { type: "adaptive" }
+  : { type: "enabled", budget_tokens: 7000 };
+
+const EFFORT_CONFIG: any = USE_SONNET
+  ? { effort: "medium" }
+  : undefined;
+
+logger.info(`Chat model: ${MODEL_ID} (${USE_SONNET ? "adaptive thinking, effort=medium" : "extended thinking, budget=7000"})`);
+
 const TOKEN_BUDGET = 70_000;
 
 const SYSTEM_PROMPT = `You are a Bible study assistant in the Koinonia app — a Christian fellowship platform built to help believers draw closer to God through His Word.
@@ -175,7 +195,31 @@ You can highlight word ranges in verses and create notes using the highlight_ver
 - Notes appear in the user's Notes tab and as indicators on the verse
 - Write rich, insightful content — study notes, key observations, historical context, cross-references
 - Colors are hex strings (e.g. "#C8902E" for gold) — you can use any hex color
-- **IMPORTANT: Always ask the user what color they want for the note.** Do NOT pick a color on your own. If the user already specified a color, use that.`;
+- **IMPORTANT: Always ask the user what color they want for the note.** Do NOT pick a color on your own. If the user already specified a color, use that.
+
+## Study Journal
+
+You have a Study Journal — a book-like collection of the user's study reflections, insights, and discoveries. Use the write_journal tool to add entries.
+
+### When to use write_journal
+- When the user asks you to "journal this", "write this down", "add to my journal", "record this insight"
+- When the user asks for a study summary or reflection that they want to keep
+- When the user says something like "save this to my journal" or "put this in the journal"
+- When the AI has produced a particularly insightful study and the user wants to preserve it
+
+### How to write journal entries
+- Each entry MUST be linked to a specific Bible passage (book, chapter, and optionally verse)
+- Write in **markdown** format — use headings, bold, italic, blockquotes, lists
+- The title should be descriptive and meaningful (e.g. "The Living Water — John 4 Study", "God's Covenant Faithfulness in Genesis 15")
+- Content should be substantive — this is a study journal, not a quick note. Include:
+  - Key insights and observations from the passage
+  - Original language discoveries (Hebrew/Greek words and their meanings)
+  - Historical and cultural context that illuminates the text
+  - Cross-references to related passages
+  - Personal application and reflection prompts
+  - Prayer points arising from the study
+- Write as if composing a chapter in a study book — thoughtful, flowing, interconnected
+- The journal entries accumulate into a personal study book over time, so write with that in mind`;
 
 
 // Build the available translations list from the database at startup
@@ -474,6 +518,37 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["book_name", "chapter", "verse", "content"],
     },
   },
+  {
+    name: "write_journal",
+    description:
+      "Write a study journal entry linked to a Bible passage. The entry is saved to the user's Study Journal — a personal book of study reflections and insights. Write in markdown format with substantive, book-quality content. Each entry becomes a chapter in the user's ongoing study journal.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "A descriptive title for the journal entry (e.g. 'The Living Water — John 4 Study').",
+        },
+        content: {
+          type: "string",
+          description: "The journal entry content in markdown format. Write substantively — include insights, original language observations, historical context, cross-references, and reflections.",
+        },
+        book_name: {
+          type: "string",
+          description: 'Book name (e.g., "Genesis", "Matthew", "1 Corinthians").',
+        },
+        chapter: {
+          type: "number",
+          description: "Chapter number the entry is linked to.",
+        },
+        verse: {
+          type: "number",
+          description: "Optional specific verse number. Omit if the entry covers the whole chapter.",
+        },
+      },
+      required: ["title", "content", "book_name", "chapter"],
+    },
+  },
 ];
 
 // Combined tools array for API calls (custom tools + server-managed web search)
@@ -727,7 +802,7 @@ function reconstructAnthropicHistory(
 function stripThinking(
   content: Anthropic.ContentBlock[]
 ): Anthropic.ContentBlock[] {
-  return content.filter((block) => block.type !== "thinking");
+  return content.filter((block) => block.type !== "thinking" && (block as any).type !== "redacted_thinking");
 }
 
 /**
@@ -743,13 +818,15 @@ async function trimToTokenBudget(
 
   let trimmed = messages;
 
-  let { input_tokens } = await anthropic.messages.countTokens({
-    model: "claude-haiku-4-5-20251001",
+  const countParams: any = {
+    model: MODEL_ID,
     system: systemMessages,
     messages: trimmed,
     tools: ALL_TOOLS,
-    thinking: { type: "enabled", budget_tokens: 7000 },
-  });
+    thinking: THINKING_CONFIG,
+  };
+
+  let { input_tokens } = await anthropic.messages.countTokens(countParams);
 
   if (input_tokens <= TOKEN_BUDGET) {
     logger.info(`Token count: ${input_tokens} (within budget)`);
@@ -786,11 +863,8 @@ async function trimToTokenBudget(
     }
 
     ({ input_tokens } = await anthropic.messages.countTokens({
-      model: "claude-haiku-4-5-20251001",
-      system: systemMessages,
+      ...countParams,
       messages: trimmed,
-      tools: ALL_TOOLS,
-      thinking: { type: "enabled", budget_tokens: 7000 },
     }));
 
     // Subsequent passes remove one at a time
@@ -869,17 +943,18 @@ chat.post("/", async (c) => {
       // Tool use loop — Claude may call tools multiple times
       const MAX_TOOL_ROUNDS = 5;
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const response = anthropic.messages.stream({
-          model: "claude-haiku-4-5-20251001",
+        const streamParams: any = {
+          model: MODEL_ID,
           max_tokens: 64000,
-          thinking: {
-            type: "enabled",
-            budget_tokens: 7000,
-          },
+          thinking: THINKING_CONFIG,
           system: systemMessages,
           messages: conversationMessages,
           tools: ALL_TOOLS,
-        });
+        };
+        if (EFFORT_CONFIG) {
+          streamParams.output_config = EFFORT_CONFIG;
+        }
+        const response = anthropic.messages.stream(streamParams);
 
         // Track tool_use blocks as they stream in
         const streamingTools: Map<number, { name: string; inputJson: string }> = new Map();
@@ -1401,6 +1476,41 @@ chat.post("/", async (c) => {
               result = JSON.stringify({
                 success: true,
                 message: `Note created on ${book.name} ${input.chapter}:${input.verse}.`,
+              });
+            }
+          } else if (toolUse.name === "write_journal") {
+            const input = toolUse.input as {
+              title: string; content: string;
+              book_name: string; chapter: number; verse?: number;
+            };
+            // Resolve book name to book_id
+            let book = queries.bookByName.get(panels?.[0]?.translation || "KJV", input.book_name) as
+              | { book_id: number; name: string; chapters: number }
+              | undefined;
+            if (!book) {
+              book = queries.bookByName.get("KJV", input.book_name) as
+                | { book_id: number; name: string; chapters: number }
+                | undefined;
+            }
+            if (!book) {
+              result = JSON.stringify({ error: `Book "${input.book_name}" not found.` });
+            } else {
+              // Send journal entry event to the frontend
+              await stream.writeSSE({
+                event: "journal_entry",
+                data: JSON.stringify({
+                  title: input.title,
+                  content: input.content,
+                  bookId: book.book_id,
+                  bookName: book.name,
+                  chapter: input.chapter,
+                  verse: input.verse,
+                }),
+              });
+              const verseStr = input.verse ? `:${input.verse}` : "";
+              result = JSON.stringify({
+                success: true,
+                message: `Journal entry "${input.title}" saved for ${book.name} ${input.chapter}${verseStr}. The user can view it in their Study Journal tab.`,
               });
             }
           } else {

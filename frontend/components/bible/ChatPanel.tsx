@@ -20,7 +20,7 @@ import { useChatStream } from "@/hooks/useChatStream";
 import { useApiAuth } from "@/hooks/useApiAuth";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
-import type { PanelInfo, ChatMessage as ChatMessageType, OpenPanelInfo, PresentationUpdateData, PresentationSummary, HighlightVerseData, CreateNoteData } from "@/hooks/useChatStream";
+import type { PanelInfo, ChatMessage as ChatMessageType, OpenPanelInfo, PresentationUpdateData, PresentationSummary, HighlightVerseData, CreateNoteData, JournalEntryData } from "@/hooks/useChatStream";
 
 type SlideData = { title: string; html: string };
 
@@ -35,11 +35,12 @@ type Props = {
   onSwitchPresentation?: (presentationId: string) => void;
   onHighlightVerse?: (data: HighlightVerseData) => void;
   onCreateNote?: (data: CreateNoteData) => void;
+  onJournalEntry?: (data: JournalEntryData) => void;
   presentation?: { id?: string; mode: string; html?: string; themeCss?: string; slides?: SlideData[] };
   presentationSummaries?: PresentationSummary[];
 };
 
-export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote, presentation, presentationSummaries }: Props) {
+export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote, onJournalEntry, presentation, presentationSummaries }: Props) {
   const { token } = useApiAuth();
   const [conversationId, setConversationId] = useState<Id<"conversations"> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -71,6 +72,7 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
     onSwitchPresentation,
     onHighlightVerse,
     onCreateNote,
+    onJournalEntry,
     presentation,
     presentationSummaries,
   });

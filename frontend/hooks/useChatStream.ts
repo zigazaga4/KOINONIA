@@ -99,6 +99,15 @@ export type CreateNoteData = {
   verseText: string;
 };
 
+export type JournalEntryData = {
+  title: string;
+  content: string;
+  bookId: number;
+  bookName: string;
+  chapter: number;
+  verse?: number;
+};
+
 type UseChatStreamOptions = {
   panels: PanelInfo[];
   token: string | null;
@@ -113,6 +122,7 @@ type UseChatStreamOptions = {
   onSwitchPresentation?: (presentationId: string) => void;
   onHighlightVerse?: (data: HighlightVerseData) => void;
   onCreateNote?: (data: CreateNoteData) => void;
+  onJournalEntry?: (data: JournalEntryData) => void;
 };
 
 export function useChatStream({
@@ -127,6 +137,7 @@ export function useChatStream({
   onSwitchPresentation,
   onHighlightVerse,
   onCreateNote,
+  onJournalEntry,
   presentation: presentationData,
   presentationSummaries,
 }: UseChatStreamOptions) {
@@ -415,6 +426,13 @@ export function useChatStream({
               } catch {}
               break;
 
+            case "journal_entry":
+              try {
+                const journalData = JSON.parse(data) as JournalEntryData;
+                onJournalEntry?.(journalData);
+              } catch {}
+              break;
+
             case "web_search": {
               // Claude is searching the web — create a tool call block with query
               try {
@@ -588,7 +606,7 @@ export function useChatStream({
         setIsStreaming(false);
       }
     },
-    [messages, panels, token, presentationData, presentationSummaries, createConversation, saveMessageMut, updateTitle, onConversationCreated, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote]
+    [messages, panels, token, presentationData, presentationSummaries, createConversation, saveMessageMut, updateTitle, onConversationCreated, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote, onJournalEntry]
   );
 
   const cancelStream = useCallback(() => {
