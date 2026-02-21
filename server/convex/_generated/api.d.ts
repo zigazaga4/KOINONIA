@@ -18,6 +18,7 @@ import type * as messages from "../messages.js";
 import type * as notes from "../notes.js";
 import type * as posts from "../posts.js";
 import type * as presentations from "../presentations.js";
+import type * as subscriptions from "../subscriptions.js";
 
 import type {
   ApiFromModules,
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   notes: typeof notes;
   posts: typeof posts;
   presentations: typeof presentations;
+  subscriptions: typeof subscriptions;
 }>;
 
 /**

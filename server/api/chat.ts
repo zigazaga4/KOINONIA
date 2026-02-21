@@ -4,6 +4,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { queries } from "../lib/db.js";
 import { authMiddleware } from "../lib/authMiddleware.js";
 import { logger } from "../lib/logger.js";
+import { convexClient } from "../lib/convex.js";
+import { api } from "../convex/_generated/api.js";
+import { getModelConfig, TIER_CONFIG } from "../lib/tierConfig.js";
+import type { Tier } from "../lib/tierConfig.js";
 
 const chat = new Hono();
 
@@ -11,25 +15,7 @@ chat.use("/*", authMiddleware);
 
 const anthropic = new Anthropic();
 
-// Model selection via CHAT_MODEL env var: "sonnet" (default) or "haiku"
-const CHAT_MODEL_SETTING = (process.env.CHAT_MODEL || "sonnet").toLowerCase();
-const USE_SONNET = CHAT_MODEL_SETTING === "sonnet";
-
-const MODEL_ID = USE_SONNET
-  ? "claude-sonnet-4-6"
-  : "claude-haiku-4-5-20251001";
-
-// Sonnet 4.6: adaptive thinking with balanced effort
-// Haiku 4.5: legacy extended thinking with fixed budget
-const THINKING_CONFIG: any = USE_SONNET
-  ? { type: "adaptive" }
-  : { type: "enabled", budget_tokens: 7000 };
-
-const EFFORT_CONFIG: any = USE_SONNET
-  ? { effort: "medium" }
-  : undefined;
-
-logger.info(`Chat model: ${MODEL_ID} (${USE_SONNET ? "adaptive thinking, effort=medium" : "extended thinking, budget=7000"})`);
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET || "";
 
 const TOKEN_BUDGET = 70_000;
 
@@ -812,18 +798,20 @@ function stripThinking(
  */
 async function trimToTokenBudget(
   messages: Anthropic.MessageParam[],
-  systemMessages: Anthropic.TextBlockParam[]
+  systemMessages: Anthropic.TextBlockParam[],
+  modelId: string,
+  thinkingConfig: any
 ): Promise<Anthropic.MessageParam[]> {
   if (messages.length <= 1) return messages;
 
   let trimmed = messages;
 
   const countParams: any = {
-    model: MODEL_ID,
+    model: modelId,
     system: systemMessages,
     messages: trimmed,
     tools: ALL_TOOLS,
-    thinking: THINKING_CONFIG,
+    thinking: thinkingConfig,
   };
 
   let { input_tokens } = await anthropic.messages.countTokens(countParams);
@@ -885,7 +873,67 @@ type PresentationData = {
 
 type PresentationSummary = { id: string; title: string; mode: string };
 
+function getMonthStart(): number {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+}
+
+function getMonthEnd(): number {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+}
+
 chat.post("/", async (c) => {
+  const userId = c.get("userId") as string | null;
+
+  // ─── Tier lookup ────────────────────────────────────────────────────────────
+  let tier: Tier = "free";
+  let periodStart = getMonthStart();
+  let periodEnd = getMonthEnd();
+
+  if (userId) {
+    try {
+      const subscription = await convexClient.query(
+        api.subscriptions.getSubscriptionByUserId,
+        { userId }
+      );
+      if (subscription && (subscription.status === "active" || subscription.status === "trialing")) {
+        tier = subscription.tier as Tier;
+        periodStart = subscription.currentPeriodStart;
+        periodEnd = subscription.currentPeriodEnd;
+      }
+    } catch (err) {
+      logger.warn(`Failed to look up subscription for ${userId}: ${err}`);
+    }
+  }
+
+  const { modelId, thinkingConfig, effortConfig, messageLimit } = getModelConfig(tier);
+  logger.info(`Chat request: tier=${tier}, model=${modelId}, limit=${messageLimit}`);
+
+  // ─── Usage check ────────────────────────────────────────────────────────────
+  if (userId) {
+    try {
+      const usage = await convexClient.query(
+        api.subscriptions.getUsageForUser,
+        { userId, periodStart }
+      );
+      const currentCount = usage?.messageCount ?? 0;
+      if (currentCount >= messageLimit) {
+        return c.json({
+          error: "message_limit_reached",
+          message: "You've reached your message limit for this billing period.",
+          currentCount,
+          limit: messageLimit,
+          tier,
+          periodEnd,
+        }, 429);
+      }
+    } catch (err) {
+      logger.warn(`Failed to check usage for ${userId}: ${err}`);
+      // Don't block on usage check failure
+    }
+  }
+
   const body = await c.req.json();
   const { messages, panels, presentation: clientPresentation, presentationSummaries: clientSummaries } = body as {
     messages: IncomingMessage[];
@@ -937,22 +985,24 @@ chat.post("/", async (c) => {
       // Trim to fit within token budget
       conversationMessages = await trimToTokenBudget(
         conversationMessages,
-        systemMessages
+        systemMessages,
+        modelId,
+        thinkingConfig
       );
 
       // Tool use loop — Claude may call tools multiple times
       const MAX_TOOL_ROUNDS = 5;
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const streamParams: any = {
-          model: MODEL_ID,
+          model: modelId,
           max_tokens: 64000,
-          thinking: THINKING_CONFIG,
+          thinking: thinkingConfig,
           system: systemMessages,
           messages: conversationMessages,
           tools: ALL_TOOLS,
         };
-        if (EFFORT_CONFIG) {
-          streamParams.output_config = EFFORT_CONFIG;
+        if (effortConfig) {
+          streamParams.output_config = effortConfig;
         }
         const response = anthropic.messages.stream(streamParams);
 
@@ -1098,6 +1148,19 @@ chat.post("/", async (c) => {
 
         if (stopReason !== "tool_use") {
           // No tool calls — we're done
+          // Increment usage counter
+          if (userId && INTERNAL_SECRET) {
+            try {
+              await convexClient.mutation(api.subscriptions.incrementUsage, {
+                serverSecret: INTERNAL_SECRET,
+                userId,
+                periodStart,
+                periodEnd,
+              });
+            } catch (err) {
+              logger.warn(`Failed to increment usage: ${err}`);
+            }
+          }
           await stream.writeSSE({ event: "done", data: "[DONE]" });
           break;
         }
@@ -1108,6 +1171,19 @@ chat.post("/", async (c) => {
         );
 
         if (toolUseBlocks.length === 0) {
+          // Increment usage counter
+          if (userId && INTERNAL_SECRET) {
+            try {
+              await convexClient.mutation(api.subscriptions.incrementUsage, {
+                serverSecret: INTERNAL_SECRET,
+                userId,
+                periodStart,
+                periodEnd,
+              });
+            } catch (err) {
+              logger.warn(`Failed to increment usage: ${err}`);
+            }
+          }
           await stream.writeSSE({ event: "done", data: "[DONE]" });
           break;
         }

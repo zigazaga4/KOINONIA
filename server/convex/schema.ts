@@ -78,6 +78,21 @@ export default defineSchema({
         })
       )
     ),
+    contentBlocks: v.optional(
+      v.array(
+        v.union(
+          v.object({ type: v.literal("text"), text: v.string() }),
+          v.object({
+            type: v.literal("tool_call"),
+            toolCall: v.object({
+              name: v.string(),
+              args: v.any(),
+              result: v.optional(v.any()),
+            }),
+          })
+        )
+      )
+    ),
     createdAt: v.number(),
   }).index("by_conversation", ["conversationId", "createdAt"]),
 
@@ -135,4 +150,44 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_user", ["userId", "createdAt"]),
+
+  // Stripe subscriptions — one per user
+  subscriptions: defineTable({
+    userId: v.id("users"),
+    stripeCustomerId: v.string(),
+    stripeSubscriptionId: v.string(),
+    stripePriceId: v.string(),
+    tier: v.union(
+      v.literal("free"),
+      v.literal("student"),
+      v.literal("believer"),
+      v.literal("ministry"),
+      v.literal("seminary")
+    ),
+    status: v.union(
+      v.literal("active"),
+      v.literal("canceled"),
+      v.literal("past_due"),
+      v.literal("unpaid"),
+      v.literal("trialing")
+    ),
+    currentPeriodStart: v.number(),
+    currentPeriodEnd: v.number(),
+    cancelAtPeriodEnd: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_stripeCustomerId", ["stripeCustomerId"])
+    .index("by_stripeSubscriptionId", ["stripeSubscriptionId"]),
+
+  // Monthly usage tracking — one record per user per billing period
+  usage: defineTable({
+    userId: v.id("users"),
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    messageCount: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_period", ["userId", "periodStart"]),
 });

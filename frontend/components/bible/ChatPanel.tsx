@@ -18,6 +18,9 @@ import { ChatInput } from "./ChatInput";
 import { ConversationList } from "./ConversationList";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useApiAuth } from "@/hooks/useApiAuth";
+import { useSubscription } from "@/hooks/useSubscription";
+import { UsageBadge } from "@/components/subscription/UsageBadge";
+import { PricingCards } from "@/components/subscription/PricingCard";
 import { KoinoniaColors } from "@/constants/Colors";
 import { Fonts } from "@/constants/Fonts";
 import type { PanelInfo, ChatMessage as ChatMessageType, OpenPanelInfo, PresentationUpdateData, PresentationSummary, HighlightVerseData, CreateNoteData, JournalEntryData } from "@/hooks/useChatStream";
@@ -42,8 +45,10 @@ type Props = {
 
 export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPresentationUpdate, onPresentationStreaming, onSwitchPresentation, onHighlightVerse, onCreateNote, onJournalEntry, presentation, presentationSummaries }: Props) {
   const { token } = useApiAuth();
+  const { subscription, subscribe, manageSubscription } = useSubscription();
   const [conversationId, setConversationId] = useState<Id<"conversations"> | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
   const [initialMessages, setInitialMessages] = useState<ChatMessageType[]>([]);
   // Only set when user picks a conversation from history — prevents reactive query
   // from resetting messages during active streaming
@@ -91,6 +96,7 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
       content: m.content,
       thinking: m.thinking ?? undefined,
       toolCalls: m.toolCalls as ChatMessageType["toolCalls"],
+      contentBlocks: m.contentBlocks as ChatMessageType["contentBlocks"],
     }));
     setInitialMessages(mapped);
     resetMessages(mapped);
@@ -128,9 +134,12 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          Bible Study AI
-        </Text>
+        <TouchableOpacity onPress={() => setShowPricing(true)} activeOpacity={0.7}>
+          <UsageBadge
+            messageCount={subscription.messageCount}
+            messageLimit={subscription.messageLimit}
+          />
+        </TouchableOpacity>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -193,6 +202,21 @@ export function ChatPanel({ panels, isModal, visible, onClose, onOpenPanel, onPr
           activeConversationId={conversationId}
           onSelect={handleSelectConversation}
           onClose={() => setShowHistory(false)}
+        />
+      )}
+
+      {showPricing && (
+        <PricingCards
+          currentTier={subscription.tier}
+          onSubscribe={(tier) => {
+            setShowPricing(false);
+            subscribe(tier);
+          }}
+          onManage={() => {
+            setShowPricing(false);
+            manageSubscription();
+          }}
+          onClose={() => setShowPricing(false)}
         />
       )}
     </View>

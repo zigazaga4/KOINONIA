@@ -229,11 +229,20 @@ export function useChatStream({
 
         if (!response.ok) {
           const errorBody = await response.text();
-          throw new Error(
-            response.status === 401
-              ? "Not authenticated. Please sign out and sign back in."
-              : `Server error (${response.status}): ${errorBody}`
-          );
+          let errorMsg: string;
+          if (response.status === 429) {
+            try {
+              const parsed = JSON.parse(errorBody);
+              errorMsg = parsed.message || "You've reached your message limit. Please upgrade your plan.";
+            } catch {
+              errorMsg = "You've reached your message limit. Please upgrade your plan.";
+            }
+          } else if (response.status === 401) {
+            errorMsg = "Not authenticated. Please sign out and sign back in.";
+          } else {
+            errorMsg = `Server error (${response.status}): ${errorBody}`;
+          }
+          throw new Error(errorMsg);
         }
 
         const reader = response.body!.getReader();
@@ -591,6 +600,7 @@ export function useChatStream({
               content: accumulatedContent,
               thinking: accumulatedThinking || undefined,
               toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+              contentBlocks: accumulatedBlocks.length > 0 ? accumulatedBlocks : undefined,
             });
           } catch {}
         }

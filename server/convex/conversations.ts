@@ -64,6 +64,21 @@ export const saveMessage = mutation({
         })
       )
     ),
+    contentBlocks: v.optional(
+      v.array(
+        v.union(
+          v.object({ type: v.literal("text"), text: v.string() }),
+          v.object({
+            type: v.literal("tool_call"),
+            toolCall: v.object({
+              name: v.string(),
+              args: v.any(),
+              result: v.optional(v.any()),
+            }),
+          })
+        )
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -74,6 +89,7 @@ export const saveMessage = mutation({
       content: args.content,
       thinking: args.thinking,
       toolCalls: args.toolCalls,
+      contentBlocks: args.contentBlocks,
       createdAt: now,
     });
 
